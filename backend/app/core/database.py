@@ -1,0 +1,23 @@
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+
+# Cadena de conexión temporal para desarrollar sin el rig
+# Cuando prendas el rig, cambiaremos esto por: "postgresql+psycopg://kinko_user:password@localhost:5432/kinko"
+SQLALCHEMY_DATABASE_URL = "sqlite:///./kinko_dev.db"
+
+# connect_args={"check_same_thread": False} es una exigencia exclusiva de SQLite en aplicaciones multihilo como FastAPI
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
+)
+
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+Base = declarative_base()
+
+def get_db():
+    """Generador para inyectar la sesión de base de datos en los endpoints."""
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
