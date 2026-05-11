@@ -13,6 +13,15 @@ class AccountType(str, enum.Enum):
     DEBT = "debt"            # Lo que le debés a otros o te deben
     INVESTMENTS = "investments"
 
+class Account(Base):
+    """Cuentas bancarias, tarjetas, efectivo o sobres virtuales."""
+    __tablename__ = "accounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)   # Ej: "Visa"
+    entity = Column(String, nullable=False) # Ej: "Galicia"
+    type = Column(Enum(AccountType), nullable=False)
+    
 class Transaction(Base):
     """El contenedor de un evento financiero."""
     __tablename__ = "transactions"
