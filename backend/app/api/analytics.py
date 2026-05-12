@@ -11,7 +11,6 @@ router = APIRouter(prefix="/analytics", tags=["Analytics & Balances"])
 
 @router.get("/balances", response_model=List[AccountBalance])
 def get_account_balances(db: Session = Depends(get_db)):
-    """Calcula el saldo actual nativo y en moneda base para cada cuenta."""
     results = (
         db.query(
             Account.id,
@@ -19,6 +18,7 @@ def get_account_balances(db: Session = Depends(get_db)):
             Account.entity,
             Account.currency,
             Account.is_day_to_day,
+            Account.is_active, # Requerido por el nuevo esquema
             func.sum(Entry.amount).label("total_balance"),
             func.sum(Entry.base_amount).label("total_base_balance")
         )
@@ -35,19 +35,21 @@ def get_account_balances(db: Session = Depends(get_db)):
             balance=r.total_balance or Decimal("0.00"),
             base_balance=r.total_base_balance or Decimal("0.00"),
             currency=r.currency,
-            is_day_to_day=r.is_day_to_day
+            is_day_to_day=r.is_day_to_day,
+            is_active=r.is_active
         ) for r in results
     ]
 
 @router.get("/net-worth", response_model=TotalBalance)
 def get_net_worth(db: Session = Depends(get_db)):
-    """Calcula el patrimonio neto total y la liquidez diaria usando equivalencias unificadas."""
     balances = get_account_balances(db)
     
-    # 1. Dinero disponible Día a Día (solo cuentas marcadas para uso diario con saldo positivo)
-    day_to_day = sum((b.base_balance for b in balances if b.is_day_to_day and b.base_balance > 0), Decimal("0.00"))
+    # Excluimos del cálculo diario las cuentas con soft-delete
+    day_to_day = sum(
+        (b.base_balance for b in balances if b.is_day_to_day and b.is_active and b.base_balance > 0), 
+        Decimal("0.00")
+    )
     
-    # 2. Activos y Pasivos Globales (utilizando siempre la columna unificada base_balance)
     assets = sum((b.base_balance for b in balances if b.base_balance > 0), Decimal("0.00"))
     liabilities = sum((b.base_balance for b in balances if b.base_balance < 0), Decimal("0.00"))
     

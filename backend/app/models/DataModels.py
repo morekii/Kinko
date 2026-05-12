@@ -18,13 +18,18 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)   
-    entity = Column(String, nullable=False) 
+    name = Column(String, nullable=False)
+    entity = Column(String, nullable=False)
     type = Column(Enum(AccountType), nullable=False)
-    currency = Column(String(5), default="ARS", nullable=False)
+    currency = Column(String(5), default="ARS", nullable=False) # Permite "ARS", "USD", "USDT", "BTC"
+    is_day_to_day = Column(Boolean, default=True, nullable=False)
     
-    # NUEVO: Define si la cuenta es de liquidez diaria o de ahorro/inversión
-    is_day_to_day = Column(Boolean, default=True, nullable=False) # Ej: "ARS", "USD", "USDT"
+    # Soft Delete para mantener trazabilidad histórica
+    is_active = Column(Boolean, default=True, nullable=False)
+    
+    # Fechas clave para gestión de tarjetas de crédito
+    closing_day = Column(Integer, nullable=True)  # Día de cierre del resumen (1-31)
+    due_day = Column(Integer, nullable=True)      # Día de vencimiento del pago (1-31)
 
 class Transaction(Base):
     """El contenedor de un evento financiero."""
@@ -41,11 +46,13 @@ class Person(Base):
     __tablename__ = "people"
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
 
 class Category(Base):
     __tablename__ = "categories"
     id = Column(Integer, primary_key=True)
     name = Column(String, unique=True)
+    is_active = Column(Boolean, default=True, nullable=False)
 
 class Entry(Base):
     """Cada línea de movimiento de dinero dentro de una transacción."""
@@ -58,13 +65,37 @@ class Entry(Base):
     person_id = Column(Integer, ForeignKey("people.id"), nullable=True)
     category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
 
-    # amount: El valor en la divisa original de la cuenta (ej. 100 USD o 1200000 ARS)
-    amount = Column(Numeric(12, 2), nullable=False)
-    
-    # base_amount: Su valor de conversión unificado a la moneda base (ARS) para cuadrar a cero
-    base_amount = Column(Numeric(12, 2), nullable=False)
+    amount = Column(Numeric(18, 4), nullable=False)      # Precisión ampliada para soportar fracciones de BTC
+    base_amount = Column(Numeric(18, 2), nullable=False) # Equivalencia en moneda base (ARS) para cuadrar a cero
     
     transaction = relationship("Transaction", back_populates="entries")
+
+class ExchangeRate(Base):
+    """Almacena tasas de cambio manuales o consultadas para divisas vs la moneda base (ARS)."""
+    __tablename__ = "exchange_rates"
+
+    id = Column(Integer, primary_key=True)
+    currency = Column(String(5), unique=True, nullable=False) # Ej: "USD", "BTC"
+    rate_to_base = Column(Numeric(18, 4), nullable=False)     # Cuántos ARS equivale 1 unidad de esta divisa
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class Subscription(Base):
+    """Plantillas para gastos recurrentes o deudas mensuales programadas."""
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True)
+    description = Column(String, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=False)
+    currency = Column(String(5), default="ARS", nullable=False)
+    
+    # Día configurado de cobro/vencimiento en el mes (1-31)
+    charge_day = Column(Integer, nullable=False)
+    
+    # Opcional: Cuenta sugerida de origen y categoría de gasto por defecto
+    suggested_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+    category_id = Column(Integer, ForeignKey("categories.id"), nullable=True)
+    
+    is_active = Column(Boolean, default=True, nullable=False)
 
 class UserSettings(Base):
     """Configuraciones globales y automatizaciones del usuario."""

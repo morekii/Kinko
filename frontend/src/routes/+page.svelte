@@ -54,7 +54,7 @@
         </div>
     </div>
 
-    <div class="grid grid-cols-3 gap-2 mb-6">
+  <div class="grid grid-cols-3 gap-2 mb-3">
         <a href="/accounts" class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center block hover:border-indigo-200 transition-all">
             <span class="block text-lg mb-0.5">💳</span>
             <span class="text-[11px] font-bold text-slate-600 block">Cuentas</span>
@@ -66,6 +66,14 @@
         <a href="/people" class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm text-center block hover:border-indigo-200 transition-all">
             <span class="block text-lg mb-0.5">👥</span>
             <span class="text-[11px] font-bold text-slate-600 block">Amigos</span>
+        </a>
+    </div>
+    <div class="grid grid-cols-2 gap-2 mb-6">
+        <a href="/subscriptions" class="bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm text-center block hover:border-indigo-200 transition-all">
+            <span class="text-xs font-bold text-slate-600 block">🔄 Suscripciones</span>
+        </a>
+        <a href="/settings" class="bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm text-center block hover:border-indigo-200 transition-all">
+            <span class="text-xs font-bold text-slate-600 block">⚙️ Cotizaciones</span>
         </a>
     </div>
 
