@@ -1,4 +1,4 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from typing import List, Optional
 from datetime import datetime
 from decimal import Decimal
@@ -10,6 +10,8 @@ class AccountCreate(BaseModel):
     name: str
     entity: str 
     type: AccountType
+    currency: str = "ARS"
+    is_day_to_day: bool = True  # Por defecto va al flujo diario
 
 class AccountResponse(AccountCreate):
     id: int
@@ -36,6 +38,7 @@ class PersonResponse(PersonCreate):
 
 class EntryBase(BaseModel):
     amount: Decimal
+    base_amount: Optional[Decimal] = None
     account_id: Optional[int] = None
     person_id: Optional[int] = None
     category_id: Optional[int] = None
@@ -43,6 +46,15 @@ class EntryBase(BaseModel):
     @field_validator("amount")
     def validate_precision(cls, v: Decimal):
         return round(v, 2)
+
+    @model_validator(mode="after")
+    def set_default_base_amount(self):
+        # Si no se pasa un base_amount explícito, asumimos que es 1:1 con la moneda base
+        if self.base_amount is None:
+            self.base_amount = self.amount
+        else:
+            self.base_amount = round(self.base_amount, 2)
+        return self
 
 class TransactionCreate(BaseModel):
     description: str
@@ -54,9 +66,10 @@ class TransactionCreate(BaseModel):
         if len(entries) < 2:
             raise ValueError("Una transacción debe tener al menos dos movimientos (partida doble).")
         
-        total = sum((entry.amount for entry in entries), Decimal("0.00"))
+        # El balance a cero ahora se exige estrictamente sobre el valor unificado (base_amount)
+        total = sum((entry.base_amount for entry in entries), Decimal("0.00"))
         if total != Decimal("0.00"):
-            raise ValueError(f"Transacción desbalanceada. La suma de los movimientos da {total}, debe ser 0.00.")
+            raise ValueError(f"Transacción desbalanceada en moneda base. La suma da {total}, debe ser 0.00.")
         
         return entries
 
@@ -66,10 +79,13 @@ class AccountBalance(BaseModel):
     account_id: int
     account_name: str
     entity: str
-    balance: Decimal
-    currency: str = "ARS" # Por ahora hardcodeamos ARS, luego podemos sumarlo al modelo
+    balance: Decimal        # Saldo en divisa original (ej. 100 USD)
+    base_balance: Decimal   # Equivalencia unificada en ARS (ej. 120000 ARS)
+    currency: str
+    is_day_to_day: bool
 
 class TotalBalance(BaseModel):
-    total_assets: Decimal    # Lo que tenés (Cuentas, Efectivo)
-    total_liabilities: Decimal # Lo que debés (Tarjetas, Deudas con personas)
-    net_worth: Decimal       # La diferencia
+    day_to_day_available: Decimal # Liquidez real para gastar hoy en pesos
+    total_assets: Decimal         # Total de activos unificados en pesos
+    total_liabilities: Decimal    # Total de pasivos unificados en pesos
+    net_worth: Decimal
