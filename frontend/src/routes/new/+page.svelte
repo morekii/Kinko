@@ -1,328 +1,311 @@
 <script lang="ts">
     import { onMount } from 'svelte';
 
-    // Listas cargadas desde el backend
     let accounts: any[] = [];
     let categories: any[] = [];
-    let people: any[] = [];
+    let entities: any[] = [];
+    let rates: any[] = [];
 
-    // Tipo de movimiento seleccionado
-    let type: 'gasto' | 'ingreso' | 'traspaso' = 'gasto';
+    let type: 'gasto' | 'ingreso' | 'transferencia' | 'deuda' | 'pago_deuda' = 'gasto';
 
-    // Estado del formulario
     let description = '';
     let amount = '';
+    let targetAmount = ''; // Se auto-calcula
     
-    // myAccountId representa la cuenta principal del usuario en la operación:
-    // - Para Gasto o Traspaso: es la cuenta de origen (de donde sale el dinero).
-    // - Para Ingreso: es la cuenta de destino (a donde entra el dinero).
-    let myAccountId = '';
-    
-    // Destino secundario (para gastos e ingresos)
-    let destinationType: 'category' | 'person' = 'category';
-    let destinationId = '';
+    // Variables para Impuestos/Tasas en transferencias
+    let feeAmount = '';
+    let feeCategoryId: any = null;
 
-    // Estado de la UI
+    let selectedCurrency = 'ARS';
+    let primaryAccountId: any = null;
+    
+    // Ahora coexisten libremente
+    let selectedCategoryId: any = null;
+    let selectedPersonId: any = null;
+    let destinationAccountId: any = null;
+
     let loading = false;
     let successMessage = '';
     let errorMessage = '';
 
-    async function loadFormEntities() {
+    async function loadFormHub() {
         try {
-            const [resAcc, resCat, resPpl] = await Promise.all([
+            const [resAcc, resCat, resEnt, resRates] = await Promise.all([
                 fetch('http://127.0.0.1:8000/accounts'),
                 fetch('http://127.0.0.1:8000/categories'),
-                fetch('http://127.0.0.1:8000/people')
+                fetch('http://127.0.0.1:8000/people'),
+                fetch('http://127.0.0.1:8000/settings/rates/')
             ]);
-            accounts = await resAcc.json();
-            categories = await resCat.json();
-            people = await resPpl.json();
+            if (resAcc.ok) accounts = await resAcc.json();
+            if (resCat.ok) categories = await resCat.json();
+            if (resEnt.ok) entities = await resEnt.json();
+            if (resRates.ok) rates = await resRates.json();
 
-            // Preseleccionar la primera cuenta disponible por defecto
-            if (accounts.length > 0) myAccountId = accounts[0].id;
-        } catch (err) {
-            errorMessage = 'Error al conectar con el backend para cargar opciones.';
+            if (accounts.length > 0) {
+                primaryAccountId = accounts[0].id;
+                selectedCurrency = accounts[0].currency;
+            }
+        } catch {
+            errorMessage = 'Error conectando al backend.';
         }
     }
 
-    onMount(loadFormEntities);
+    onMount(loadFormHub);
 
-    // Manejador al cambiar de pestaña para resetear selecciones incompatibles
-    function handleTypeChange(newType: 'gasto' | 'ingreso' | 'traspaso') {
-        type = newType;
-        destinationId = '';
+    $: {
+        if (primaryAccountId && (type === 'gasto' || type === 'ingreso' || type === 'transferencia' || type === 'pago_deuda')) {
+            const acc = accounts.find(a => a.id == primaryAccountId);
+            if (acc) selectedCurrency = acc.currency;
+        }
+    }
+
+    $: isMultiCurrencyTransfer = (() => {
+        if (type !== 'transferencia' || !primaryAccountId || !destinationAccountId) return false;
+        const src = accounts.find(a => a.id == primaryAccountId);
+        const dst = accounts.find(a => a.id == destinationAccountId);
+        return src && dst && src.currency !== dst.currency;
+    })();
+
+    // Auto-cálculo reactivo para cruce de divisas
+    $: {
+        if (isMultiCurrencyTransfer && amount && rates.length > 0) {
+            const srcRateObj = rates.find(r => r.currency === selectedCurrency);
+            const dstCurr = accounts.find(a => a.id == destinationAccountId)?.currency || 'ARS';
+            const dstRateObj = rates.find(r => r.currency === dstCurr);
+            
+            const srcRate = srcRateObj ? parseFloat(srcRateObj.rate_to_base) : 1;
+            const dstRate = dstRateObj ? parseFloat(dstRateObj.rate_to_base) : 1;
+            
+            const baseVal = parseFloat(amount) * srcRate;
+            targetAmount = (baseVal / dstRate).toFixed(2);
+        }
+    }
+
+    function switchMode(newMode: 'gasto' | 'ingreso' | 'transferencia' | 'deuda' | 'pago_deuda') {
+        type = newMode;
+        destinationAccountId = null;
+        selectedCategoryId = null;
+        selectedPersonId = null;
+        targetAmount = '';
+        feeAmount = '';
         errorMessage = '';
         successMessage = '';
+        if (type === 'deuda') selectedCurrency = 'ARS';
     }
 
-    async function handleSubmit() {
-        if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
-            errorMessage = 'Ingresá un monto válido mayor a 0.';
-            return;
-        }
-        if (!myAccountId) {
-            errorMessage = 'Seleccioná tu cuenta bancaria o billetera.';
-            return;
-        }
+    function toBaseAmount(val: number, curr: string) {
+        if (curr === 'ARS') return val;
+        const rateObj = rates.find(r => r.currency === curr);
+        const rate = rateObj ? parseFloat(rateObj.rate_to_base) : 1000;
+        return val * rate;
+    }
 
-        // Validaciones específicas para traspasos
-        if (type === 'traspaso' && !destinationId) {
-            errorMessage = 'Seleccioná la cuenta de destino para el traspaso.';
-            return;
+    async function submitOperation() {
+        if (!amount || parseFloat(amount) <= 0) {
+            errorMessage = 'Monto ingresado no válido.'; return;
         }
-        if (type === 'traspaso' && myAccountId == destinationId) {
-            errorMessage = 'La cuenta de origen y destino no pueden ser la misma.';
-            return;
+        if (type !== 'deuda' && !primaryAccountId) {
+            errorMessage = 'Seleccioná la cuenta afectada.'; return;
+        }
+        if (type === 'transferencia' && (!destinationAccountId || primaryAccountId == destinationAccountId)) {
+            errorMessage = 'Cuenta destino inválida.'; return;
+        }
+        if ((type === 'deuda' || type === 'pago_deuda') && !selectedPersonId) {
+            errorMessage = 'Seleccioná la entidad correspondiente.'; return;
         }
 
         loading = true;
         errorMessage = '';
         successMessage = '';
 
-        const parsedAmount = parseFloat(amount);
+        const val = parseFloat(amount);
+        const baseVal = toBaseAmount(val, selectedCurrency);
+        const feeVal = feeAmount ? parseFloat(feeAmount) : 0;
+        const baseFeeVal = toBaseAmount(feeVal, selectedCurrency);
+
         let entries: any[] = [];
 
         if (type === 'gasto') {
-            // Salida de mi cuenta (-), Entrada a categoría/persona (+)
             entries = [
+                { account_id: parseInt(primaryAccountId), amount: -val, base_amount: -baseVal },
                 { 
-                    account_id: parseInt(myAccountId), 
-                    amount: -parsedAmount,
-                    base_amount: -parsedAmount 
-                },
-                { 
-                    amount: parsedAmount,
-                    base_amount: parsedAmount,
-                    category_id: destinationType === 'category' && destinationId ? parseInt(destinationId) : null,
-                    person_id: destinationType === 'person' && destinationId ? parseInt(destinationId) : null
+                    amount: val, base_amount: baseVal,
+                    category_id: selectedCategoryId ? parseInt(selectedCategoryId) : null,
+                    person_id: selectedPersonId ? parseInt(selectedPersonId) : null
                 }
             ];
         } else if (type === 'ingreso') {
-            // Entrada a mi cuenta (+), Salida de categoría/persona (-)
             entries = [
+                { account_id: parseInt(primaryAccountId), amount: val, base_amount: baseVal },
                 { 
-                    account_id: parseInt(myAccountId), 
-                    amount: parsedAmount,
-                    base_amount: parsedAmount 
-                },
-                { 
-                    amount: -parsedAmount,
-                    base_amount: -parsedAmount,
-                    category_id: destinationType === 'category' && destinationId ? parseInt(destinationId) : null,
-                    person_id: destinationType === 'person' && destinationId ? parseInt(destinationId) : null
+                    amount: -val, base_amount: -baseVal,
+                    category_id: selectedCategoryId ? parseInt(selectedCategoryId) : null,
+                    person_id: selectedPersonId ? parseInt(selectedPersonId) : null
                 }
             ];
-        } else if (type === 'traspaso') {
-            // Salida de mi cuenta origen (-), Entrada a cuenta destino (+)
+        } else if (type === 'transferencia') {
+            const dstVal = isMultiCurrencyTransfer ? parseFloat(targetAmount) : val;
+            
+            // Si hay comisión, se resta extra de la cuenta origen
             entries = [
-                { 
-                    account_id: parseInt(myAccountId), 
-                    amount: -parsedAmount,
-                    base_amount: -parsedAmount 
-                },
-                { 
-                    account_id: parseInt(destinationId), 
-                    amount: parsedAmount,
-                    base_amount: parsedAmount 
-                }
+                { account_id: parseInt(primaryAccountId), amount: -(val + feeVal), base_amount: -(baseVal + baseFeeVal) },
+                { account_id: parseInt(destinationAccountId), amount: dstVal, base_amount: baseVal }
+            ];
+
+            // Pata contable exclusiva para el impuesto
+            if (feeVal > 0) {
+                entries.push({
+                    amount: feeVal, base_amount: baseFeeVal,
+                    category_id: feeCategoryId ? parseInt(feeCategoryId) : null
+                });
+            }
+        } else if (type === 'deuda') {
+            entries = [
+                { amount: val, base_amount: baseVal, category_id: selectedCategoryId ? parseInt(selectedCategoryId) : null },
+                { amount: -val, base_amount: -baseVal, person_id: primaryAccountId ? parseInt(primaryAccountId) : null }
+            ];
+        } else if (type === 'pago_deuda') {
+            entries = [
+                { account_id: parseInt(primaryAccountId), amount: -val, base_amount: -baseVal },
+                { amount: val, base_amount: baseVal, person_id: parseInt(selectedPersonId) }
             ];
         }
 
-        // Asignar descripción por defecto si se deja en blanco
-        const defaultDescriptions = {
-            gasto: 'Gasto general',
-            ingreso: 'Ingreso de dinero',
-            traspaso: 'Traspaso entre cuentas'
-        };
-
+        const fallbackDesc = { gasto: 'Gasto', ingreso: 'Ingreso', transferencia: 'Transferencia', deuda: 'Gasto a Pagar', pago_deuda: 'Pago de Deuda' };
         const payload = {
-            description: description.trim() || defaultDescriptions[type],
-            entries: entries
+            description: description.trim() || fallbackDesc[type],
+            entries
         };
 
         try {
             const res = await fetch('http://127.0.0.1:8000/transactions/', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
+                method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
             });
-
-            if (!res.ok) {
-                const errData = await res.json();
-                throw new Error(JSON.stringify(errData));
-            }
-
-            successMessage = '¡Movimiento registrado con éxito!';
+            if (!res.ok) throw new Error();
             
-            // Limpiar campos rápidos
-            description = '';
-            amount = '';
-            destinationId = '';
-            
-            // Ocultar notificación de éxito automáticamente
+            successMessage = '¡Operación registrada con éxito!';
+            description = ''; amount = ''; targetAmount = ''; feeAmount = '';
+            selectedCategoryId = null; selectedPersonId = null; destinationAccountId = null;
             setTimeout(() => successMessage = '', 3000);
-        } catch (err: any) {
-            errorMessage = 'No se pudo registrar el movimiento. Verificá los balances.';
-            console.error(err);
+        } catch {
+            errorMessage = 'No se pudo procesar la transacción.';
         } finally {
             loading = false;
         }
     }
 </script>
 
-<main class="p-4 max-w-md mx-auto bg-slate-50 min-h-screen">
-    <header class="mb-6 flex justify-between items-center">
-        <div>
-            <h1 class="text-xl font-bold text-slate-800">Registrar Movimiento</h1>
-            <p class="text-xs text-slate-500">Partida doble inteligente</p>
-        </div>
-        <a href="/" class="text-xs font-bold text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-xl border border-indigo-100">
-            ← Volver
-        </a>
+<main class="p-4 max-w-md mx-auto space-y-4 pb-12">
+    <header class="flex justify-between items-center">
+        <h1 class="text-xl font-bold text-slate-800">Cargar Operación</h1>
+        <button type="button" on:click={() => history.back()} class="text-xs font-bold text-indigo-600 px-3 py-1.5 bg-indigo-50 rounded-xl">← Volver</button>
     </header>
 
-    {#if successMessage}
-        <div class="bg-emerald-50 border border-emerald-200 text-emerald-700 p-4 rounded-xl mb-4 text-sm font-medium animate-fade-in">
-            {successMessage}
-        </div>
-    {/if}
+    {#if successMessage}<div class="p-3 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold text-center">{successMessage}</div>{/if}
+    {#if errorMessage}<div class="p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold text-center">{errorMessage}</div>{/if}
 
-    {#if errorMessage}
-        <div class="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl mb-4 text-sm font-medium">
-            {errorMessage}
-        </div>
-    {/if}
-
-    <div class="flex bg-slate-200/70 p-1 rounded-xl mb-5 gap-1">
-        <button 
-            type="button" 
-            on:click={() => handleTypeChange('gasto')}
-            class="flex-1 py-2 text-xs font-bold rounded-lg transition-all {type === 'gasto' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}"
-        >
-            GASTO
-        </button>
-        <button 
-            type="button" 
-            on:click={() => handleTypeChange('ingreso')}
-            class="flex-1 py-2 text-xs font-bold rounded-lg transition-all {type === 'ingreso' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}"
-        >
-            INGRESO
-        </button>
-        <button 
-            type="button" 
-            on:click={() => handleTypeChange('traspaso')}
-            class="flex-1 py-2 text-xs font-bold rounded-lg transition-all {type === 'traspaso' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}"
-        >
-            TRASPASO
-        </button>
+    <div class="flex bg-slate-200/70 p-1 rounded-xl gap-0.5">
+        <button type="button" on:click={() => switchMode('gasto')} class="flex-1 py-1.5 text-[9px] font-bold rounded-lg transition-all {type === 'gasto' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}">GASTO</button>
+        <button type="button" on:click={() => switchMode('ingreso')} class="flex-1 py-1.5 text-[9px] font-bold rounded-lg transition-all {type === 'ingreso' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}">INGRESO</button>
+        <button type="button" on:click={() => switchMode('transferencia')} class="flex-1 py-1.5 text-[9px] font-bold rounded-lg transition-all {type === 'transferencia' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500'}">TRANSF.</button>
+        <button type="button" on:click={() => switchMode('deuda')} class="flex-1 py-1.5 text-[9px] font-bold rounded-lg transition-all {type === 'deuda' ? 'bg-red-600 text-white shadow-sm' : 'text-slate-500'}">A PAGAR</button>
+        <button type="button" on:click={() => switchMode('pago_deuda')} class="flex-1 py-1.5 text-[9px] font-bold rounded-lg transition-all {type === 'pago_deuda' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500'}">SALDAR</button>
     </div>
 
-    <form on:submit|preventDefault={handleSubmit} class="space-y-4">
-        <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-            <label for="amount" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Monto</label>
-            <div class="relative flex items-center">
-                <span class="absolute left-3 text-slate-400 font-bold text-lg">$</span>
-                <input 
-                    id="amount"
-                    type="number" 
-                    step="0.01"
-                    inputmode="decimal"
-                    placeholder="0.00"
-                    bind:value={amount}
-                    class="w-full pl-8 pr-4 py-2 text-2xl font-bold text-slate-800 focus:outline-none placeholder:text-slate-300"
-                    required
-                />
+    <form on:submit|preventDefault={submitOperation} class="space-y-3">
+        <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center gap-2">
+            <div class="flex-1">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Monto {isMultiCurrencyTransfer ? 'Origen' : ''}</label>
+                <input type="number" step="0.01" placeholder="0.00" bind:value={amount} class="w-full text-2xl font-bold text-slate-800 focus:outline-none" required />
             </div>
-        </div>
-
-        <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-            <label for="description" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Descripción</label>
-            <input 
-                id="description"
-                type="text" 
-                placeholder={type === 'ingreso' ? 'Ej. Sueldo, Transferencia asado...' : (type === 'traspaso' ? 'Ej. Pago tarjeta, Fondeo broker...' : 'Ej. Supermercado, Almuerzo, Nafta...')}
-                bind:value={description}
-                class="w-full py-1 text-slate-700 focus:outline-none text-sm placeholder:text-slate-300"
-            />
-        </div>
-
-        <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-            <label for="source" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                {type === 'ingreso' ? 'Cuenta Destino (¿A dónde entra?)' : 'Cuenta Origen (¿De dónde sale?)'}
-            </label>
-            <select id="source" bind:value={myAccountId} class="w-full py-1 text-sm font-medium text-slate-700 bg-transparent focus:outline-none">
-                {#each accounts as acc}
-                    <option value={acc.id}>
-                        {acc.entity} - {acc.name} ({acc.currency})
-                    </option>
-                {/each}
-            </select>
-        </div>
-
-        {#if type === 'traspaso'}
-            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                <label for="dest-acc" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Cuenta Destino (Ingreso)</label>
-                <select id="dest-acc" bind:value={destinationId} class="w-full py-1 text-sm text-slate-700 bg-transparent focus:outline-none" required>
-                    <option value="">Seleccionar cuenta destino...</option>
-                    {#each accounts.filter(a => a.id != myAccountId) as acc}
-                        <option value={acc.id}>{acc.entity} - {acc.name} ({acc.currency})</option>
-                    {/each}
+            <div class="w-24 border-l pl-2">
+                <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Divisa</label>
+                <select bind:value={selectedCurrency} class="w-full text-xs font-bold text-indigo-600 bg-slate-50 p-1 rounded focus:outline-none">
+                    <option value="ARS">ARS</option>
+                    <option value="USD">USD</option>
+                    <option value="USDT">USDT</option>
+                    <option value="BTC">BTC</option>
                 </select>
             </div>
-        {:else}
-            <div class="bg-slate-200/60 p-1 rounded-xl flex gap-1 text-xs font-medium text-slate-600">
-                <button 
-                    type="button" 
-                    on:click={() => { destinationType = 'category'; destinationId = ''; }}
-                    class="flex-1 py-2 rounded-lg transition-all {destinationType === 'category' ? 'bg-white text-slate-800 shadow-sm font-bold' : ''}"
-                >
-                    {type === 'ingreso' ? 'Origen / Concepto' : 'Categoría'}
-                </button>
-                <button 
-                    type="button" 
-                    on:click={() => { destinationType = 'person'; destinationId = ''; }}
-                    class="flex-1 py-2 rounded-lg transition-all {destinationType === 'person' ? 'bg-white text-slate-800 shadow-sm font-bold' : ''}"
-                >
-                    {type === 'ingreso' ? 'Me transfiere amigo' : 'Asignar / Prestar'}
-                </button>
-            </div>
+        </div>
 
-            <div class="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm">
-                {#if destinationType === 'category'}
-                    <label for="dest-cat" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        {type === 'ingreso' ? 'Clasificación del Ingreso' : 'Categoría de Gasto'}
-                    </label>
-                    <select id="dest-cat" bind:value={destinationId} class="w-full py-1 text-sm text-slate-700 bg-transparent focus:outline-none">
-                        <option value="">Sin categoría asignada</option>
-                        {#each categories as cat}
-                            <option value={cat.id}>{cat.name}</option>
-                        {/each}
-                    </select>
-                {:else}
-                    <label for="dest-per" class="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
-                        {type === 'ingreso' ? '¿Quién te está pagando?' : '¿A quién le corresponde?'}
-                    </label>
-                    <select id="dest-per" bind:value={destinationId} class="w-full py-1 text-sm text-slate-700 bg-transparent focus:outline-none">
-                        <option value="">Seleccionar amigo...</option>
-                        {#each people as prs}
-                            <option value={prs.id}>{prs.name}</option>
-                        {/each}
-                    </select>
-                {/if}
+        {#if isMultiCurrencyTransfer}
+            <div class="bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-100 shadow-sm animate-fade-in">
+                <label class="block text-[10px] font-bold text-indigo-600 uppercase mb-1">Monto de Ingreso Auto-Calculado</label>
+                <div class="flex items-center justify-between">
+                    <input type="number" step="0.01" bind:value={targetAmount} class="w-full text-xl font-bold text-slate-800 bg-transparent focus:outline-none" required />
+                    <span class="text-xs font-extrabold text-indigo-600 bg-white px-2 py-1 rounded border shadow-sm">
+                        {accounts.find(a => a.id == destinationAccountId)?.currency}
+                    </span>
+                </div>
             </div>
         {/if}
 
-        <button 
-            type="submit" 
-            disabled={loading}
-            class="w-full mt-2 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold py-3 rounded-2xl shadow-lg shadow-indigo-600/20 transition-all flex justify-center items-center gap-2"
-        >
-            {#if loading}
-                <span class="inline-block w-4 h-4 border-2 border-white/60 border-t-white rounded-full animate-spin"></span>
-                Procesando...
-            {:else}
-                Registrar Movimiento
-            {/if}
+        <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+            <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Concepto</label>
+            <input type="text" placeholder="Detalle de la operación..." bind:value={description} class="w-full text-sm text-slate-700 focus:outline-none" />
+        </div>
+
+        {#if type === 'transferencia'}
+            <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Cuenta Origen</label>
+                <select bind:value={primaryAccountId} class="w-full text-sm font-medium text-slate-700 bg-white focus:outline-none">
+                    {#each accounts as acc}<option value={acc.id}>{acc.entity} - {acc.name}</option>{/each}
+                </select>
+            </div>
+            <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Cuenta Destino</label>
+                <select bind:value={destinationAccountId} class="w-full text-sm font-medium text-slate-700 bg-white focus:outline-none" required>
+                    <option value={null}>Seleccionar destino...</option>
+                    {#each accounts.filter(a => a.id != primaryAccountId) as acc}<option value={acc.id}>{acc.entity} - {acc.name}</option>{/each}
+                </select>
+            </div>
+            <div class="bg-red-50/50 p-3.5 rounded-2xl border border-red-100 shadow-sm">
+                <label class="block text-[10px] font-bold text-red-500 uppercase mb-1">Tasas / Impuestos Bancarios (Opcional)</label>
+                <div class="flex gap-2">
+                    <input type="number" step="0.01" placeholder="0.00" bind:value={feeAmount} class="w-24 p-2 bg-white rounded-lg text-sm font-bold border border-red-100 focus:outline-none" />
+                    <select bind:value={feeCategoryId} class="flex-1 text-xs text-slate-700 bg-white border border-red-100 rounded-lg px-2 focus:outline-none">
+                        <option value={null}>Sin categorizar...</option>
+                        {#each categories as cat}<option value={cat.id}>{cat.name}</option>{/each}
+                    </select>
+                </div>
+            </div>
+
+        {:else}
+            <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+                <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">
+                    {type === 'deuda' ? 'Acreedor (Entidad)' : type === 'pago_deuda' ? 'Cuenta de Pago (Origen)' : type === 'ingreso' ? 'Cuenta Receptora' : 'Cuenta de Pago'}
+                </label>
+                <select bind:value={primaryAccountId} class="w-full text-sm font-medium text-slate-700 bg-white focus:outline-none" required>
+                    <option value={null}>Seleccionar...</option>
+                    {#if type === 'deuda'}
+                        {#each entities as ent}<option value={ent.id}>{ent.name}</option>{/each}
+                    {:else}
+                        {#each accounts as acc}<option value={acc.id}>{acc.entity} - {acc.name}</option>{/each}
+                    {/if}
+                </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Categoría</label>
+                    <select bind:value={selectedCategoryId} class="w-full text-xs text-slate-700 bg-white focus:outline-none" disabled={type === 'pago_deuda'}>
+                        <option value={null}>Ninguna</option>
+                        {#each categories as cat}<option value={cat.id}>{cat.name}</option>{/each}
+                    </select>
+                </div>
+                <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Entidad</label>
+                    <select bind:value={selectedPersonId} class="w-full text-xs text-slate-700 bg-white focus:outline-none" required={type === 'pago_deuda'}>
+                        <option value={null}>Ninguna</option>
+                        {#each entities as ent}<option value={ent.id}>{ent.name}</option>{/each}
+                    </select>
+                </div>
+            </div>
+        {/if}
+
+        <button type="submit" disabled={loading} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg mt-2 text-sm transition-all">
+            {loading ? 'Procesando...' : 'Confirmar Movimiento'}
         </button>
     </form>
 </main>

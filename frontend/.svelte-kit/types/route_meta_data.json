@@ -1,9 +1,15 @@
 {
 	"/": [],
 	"/accounts": [],
+	"/accounts/[id]": [],
 	"/categories": [],
+	"/categories/[id]": [],
+	"/entities": [],
+	"/entities/[id]": [],
 	"/new": [],
-	"/people": [],
+	"/search": [],
 	"/settings": [],
-	"/subscriptions": []
+	"/subscriptions": [],
+	"/transactions": [],
+	"/transactions/[id]": []
 }

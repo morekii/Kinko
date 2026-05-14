@@ -4,7 +4,7 @@ from datetime import datetime
 from decimal import Decimal
 from app.models.DataModels import AccountType
 
-# --- ENTIDADES BASE ---
+# --- CUENTAS ---
 
 class AccountCreate(BaseModel):
     name: str
@@ -13,43 +13,56 @@ class AccountCreate(BaseModel):
     currency: str = "ARS"
     is_day_to_day: bool = True
     is_active: bool = True
-    closing_day: Optional[int] = None
-    due_day: Optional[int] = None
+
+class AccountUpdate(BaseModel):
+    name: Optional[str] = None
+    entity: Optional[str] = None
+    type: Optional[AccountType] = None
+    currency: Optional[str] = None
+    is_day_to_day: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 class AccountResponse(AccountCreate):
     id: int
     class Config:
         from_attributes = True
 
-class AccountUpdate(BaseModel):
-    name: Optional[str] = None
-    is_day_to_day: Optional[bool] = None
-    is_active: Optional[bool] = None
-    closing_day: Optional[int] = None
-    due_day: Optional[int] = None
+# --- CATEGORÍAS ---
 
 class CategoryCreate(BaseModel):
     name: str
     is_active: bool = True
+
+class CategoryUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
 
 class CategoryResponse(CategoryCreate):
     id: int
     class Config:
         from_attributes = True
 
+# --- PERSONAS / ENTIDADES EXTERNAS ---
+
 class PersonCreate(BaseModel):
     name: str
+    is_debt_tracker: bool = False
     is_active: bool = True
+
+class PersonUpdate(BaseModel):
+    name: Optional[str] = None
+    is_debt_tracker: Optional[bool] = None
+    is_active: Optional[bool] = None
 
 class PersonResponse(PersonCreate):
     id: int
+    balance: Decimal = Decimal("0.00")
     class Config:
         from_attributes = True
-
-# --- COTIZACIONES ---
+# --- COTIZACIONES MANUALES ---
 
 class ExchangeRateUpdate(BaseModel):
-    rates: dict[str, Decimal]  # Ej: {"USD": 1250.00, "BTC": 63000000.00}
+    rates: dict[str, Decimal]
 
 class ExchangeRateResponse(BaseModel):
     currency: str
@@ -58,7 +71,7 @@ class ExchangeRateResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# --- SUSCRIPCIONES ---
+# --- SUSCRIPCIONES / PROGRAMADOS ---
 
 class SubscriptionCreate(BaseModel):
     description: str
@@ -74,7 +87,7 @@ class SubscriptionResponse(SubscriptionCreate):
     class Config:
         from_attributes = True
 
-# --- TRANSACCIONES ---
+# --- TRANSACCIONES Y ASIENTOS ---
 
 class EntryBase(BaseModel):
     amount: Decimal
@@ -85,13 +98,12 @@ class EntryBase(BaseModel):
 
     @field_validator("amount")
     def validate_precision(cls, v: Decimal):
-        # Permitimos 4 decimales en Pydantic para no truncar montos pequeños de cripto
-        return round(v, 4)
+        return round(v, 2)
 
     @model_validator(mode="after")
     def set_default_base_amount(self):
         if self.base_amount is None:
-            self.base_amount = round(self.amount, 2)
+            self.base_amount = self.amount
         else:
             self.base_amount = round(self.base_amount, 2)
         return self
@@ -112,7 +124,7 @@ class TransactionCreate(BaseModel):
         
         return entries
 
-# --- ANALYTICS --- 
+# --- ANALÍTICAS Y BALANCES --- 
 
 class AccountBalance(BaseModel):
     account_id: int

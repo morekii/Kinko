@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
-from app.models import DataModels
-from app.api import transactions, entities, analytics, settings, subscriptions # Agregamos imports
+from app.api import transactions, entities, analytics, settings, subscriptions
 
 Base.metadata.create_all(bind=engine)
 
@@ -16,12 +15,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Conectamos todos los módulos
 app.include_router(entities.router)
 app.include_router(transactions.router)
 app.include_router(analytics.router)
-app.include_router(settings.router)      # NUEVO
-app.include_router(subscriptions.router) # NUEVO
+app.include_router(settings.router)
+app.include_router(subscriptions.router)
 
 @app.get("/")
 def read_root():
