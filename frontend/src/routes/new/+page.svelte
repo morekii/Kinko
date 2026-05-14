@@ -9,17 +9,15 @@
     let type: 'gasto' | 'ingreso' | 'transferencia' | 'deuda' | 'pago_deuda' = 'gasto';
 
     let description = '';
-    let amount = '';
-    let targetAmount = ''; // Se auto-calcula
+    let amount: number | string = '';
+    let targetAmount: number | string = ''; 
     
-    // Variables para Impuestos/Tasas en transferencias
-    let feeAmount = '';
+    let feeAmount: number | string = '';
     let feeCategoryId: any = null;
 
     let selectedCurrency = 'ARS';
     let primaryAccountId: any = null;
     
-    // Ahora coexisten libremente
     let selectedCategoryId: any = null;
     let selectedPersonId: any = null;
     let destinationAccountId: any = null;
@@ -52,8 +50,9 @@
 
     onMount(loadFormHub);
 
+    // Ajusta la moneda si cambiamos de cuenta
     $: {
-        if (primaryAccountId && (type === 'gasto' || type === 'ingreso' || type === 'transferencia' || type === 'pago_deuda')) {
+        if (primaryAccountId && type !== 'deuda') {
             const acc = accounts.find(a => a.id == primaryAccountId);
             if (acc) selectedCurrency = acc.currency;
         }
@@ -66,19 +65,45 @@
         return src && dst && src.currency !== dst.currency;
     })();
 
-    // Auto-cálculo reactivo para cruce de divisas
-    $: {
-        if (isMultiCurrencyTransfer && amount && rates.length > 0) {
-            const srcRateObj = rates.find(r => r.currency === selectedCurrency);
-            const dstCurr = accounts.find(a => a.id == destinationAccountId)?.currency || 'ARS';
-            const dstRateObj = rates.find(r => r.currency === dstCurr);
-            
-            const srcRate = srcRateObj ? parseFloat(srcRateObj.rate_to_base) : 1;
-            const dstRate = dstRateObj ? parseFloat(dstRateObj.rate_to_base) : 1;
-            
-            const baseVal = parseFloat(amount) * srcRate;
-            targetAmount = (baseVal / dstRate).toFixed(2);
-        }
+    // Lógica para obtener cotización con red de seguridad (fallback)
+    function getRate(curr: string) {
+        if (curr === 'ARS') return 1;
+        const rateObj = rates.find(r => r.currency === curr);
+        const fallbacks: Record<string, number> = { 'USD': 1200, 'USDT': 1200, 'BTC': 60000000 };
+        return rateObj ? parseFloat(rateObj.rate_to_base) : (fallbacks[curr] || 1);
+    }
+
+    // --- AUTO-CÁLCULO BIDIRECCIONAL ---
+    function calcTargetFromSource() {
+        if (!isMultiCurrencyTransfer) return;
+        const val = parseFloat(amount as string);
+        if (isNaN(val)) { targetAmount = ''; return; }
+        
+        const srcRate = getRate(selectedCurrency);
+        const dstCurr = accounts.find(a => a.id == destinationAccountId)?.currency || 'ARS';
+        const dstRate = getRate(dstCurr);
+        
+        const result = (val * srcRate) / dstRate;
+        // El signo + adelante elimina los ceros innecesarios (ej. 100.0000 -> 100)
+        targetAmount = +(result.toFixed(6)); 
+    }
+
+    function calcSourceFromTarget() {
+        if (!isMultiCurrencyTransfer) return;
+        const val = parseFloat(targetAmount as string);
+        if (isNaN(val)) { amount = ''; return; }
+        
+        const srcRate = getRate(selectedCurrency);
+        const dstCurr = accounts.find(a => a.id == destinationAccountId)?.currency || 'ARS';
+        const dstRate = getRate(dstCurr);
+        
+        const result = (val * dstRate) / srcRate;
+        amount = +(result.toFixed(6));
+    }
+
+    // Recalcular si el usuario cambia el destino
+    $: if (destinationAccountId && isMultiCurrencyTransfer && amount) {
+        calcTargetFromSource();
     }
 
     function switchMode(newMode: 'gasto' | 'ingreso' | 'transferencia' | 'deuda' | 'pago_deuda') {
@@ -94,14 +119,11 @@
     }
 
     function toBaseAmount(val: number, curr: string) {
-        if (curr === 'ARS') return val;
-        const rateObj = rates.find(r => r.currency === curr);
-        const rate = rateObj ? parseFloat(rateObj.rate_to_base) : 1000;
-        return val * rate;
+        return val * getRate(curr);
     }
 
     async function submitOperation() {
-        if (!amount || parseFloat(amount) <= 0) {
+        if (!amount || parseFloat(amount as string) <= 0) {
             errorMessage = 'Monto ingresado no válido.'; return;
         }
         if (type !== 'deuda' && !primaryAccountId) {
@@ -114,13 +136,11 @@
             errorMessage = 'Seleccioná la entidad correspondiente.'; return;
         }
 
-        loading = true;
-        errorMessage = '';
-        successMessage = '';
+        loading = true; errorMessage = ''; successMessage = '';
 
-        const val = parseFloat(amount);
+        const val = parseFloat(amount as string);
         const baseVal = toBaseAmount(val, selectedCurrency);
-        const feeVal = feeAmount ? parseFloat(feeAmount) : 0;
+        const feeVal = feeAmount ? parseFloat(feeAmount as string) : 0;
         const baseFeeVal = toBaseAmount(feeVal, selectedCurrency);
 
         let entries: any[] = [];
@@ -128,36 +148,23 @@
         if (type === 'gasto') {
             entries = [
                 { account_id: parseInt(primaryAccountId), amount: -val, base_amount: -baseVal },
-                { 
-                    amount: val, base_amount: baseVal,
-                    category_id: selectedCategoryId ? parseInt(selectedCategoryId) : null,
-                    person_id: selectedPersonId ? parseInt(selectedPersonId) : null
-                }
+                { amount: val, base_amount: baseVal, category_id: selectedCategoryId ? parseInt(selectedCategoryId) : null, person_id: selectedPersonId ? parseInt(selectedPersonId) : null }
             ];
         } else if (type === 'ingreso') {
             entries = [
                 { account_id: parseInt(primaryAccountId), amount: val, base_amount: baseVal },
-                { 
-                    amount: -val, base_amount: -baseVal,
-                    category_id: selectedCategoryId ? parseInt(selectedCategoryId) : null,
-                    person_id: selectedPersonId ? parseInt(selectedPersonId) : null
-                }
+                { amount: -val, base_amount: -baseVal, category_id: selectedCategoryId ? parseInt(selectedCategoryId) : null, person_id: selectedPersonId ? parseInt(selectedPersonId) : null }
             ];
         } else if (type === 'transferencia') {
-            const dstVal = isMultiCurrencyTransfer ? parseFloat(targetAmount) : val;
+            const dstVal = isMultiCurrencyTransfer ? parseFloat(targetAmount as string) : val;
             
-            // Si hay comisión, se resta extra de la cuenta origen
             entries = [
                 { account_id: parseInt(primaryAccountId), amount: -(val + feeVal), base_amount: -(baseVal + baseFeeVal) },
                 { account_id: parseInt(destinationAccountId), amount: dstVal, base_amount: baseVal }
             ];
 
-            // Pata contable exclusiva para el impuesto
             if (feeVal > 0) {
-                entries.push({
-                    amount: feeVal, base_amount: baseFeeVal,
-                    category_id: feeCategoryId ? parseInt(feeCategoryId) : null
-                });
+                entries.push({ amount: feeVal, base_amount: baseFeeVal, category_id: feeCategoryId ? parseInt(feeCategoryId) : null });
             }
         } else if (type === 'deuda') {
             entries = [
@@ -172,10 +179,7 @@
         }
 
         const fallbackDesc = { gasto: 'Gasto', ingreso: 'Ingreso', transferencia: 'Transferencia', deuda: 'Gasto a Pagar', pago_deuda: 'Pago de Deuda' };
-        const payload = {
-            description: description.trim() || fallbackDesc[type],
-            entries
-        };
+        const payload = { description: description.trim() || fallbackDesc[type], entries };
 
         try {
             const res = await fetch('http://127.0.0.1:8000/transactions/', {
@@ -213,14 +217,15 @@
     </div>
 
     <form on:submit|preventDefault={submitOperation} class="space-y-3">
+        
         <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm flex justify-between items-center gap-2">
             <div class="flex-1">
                 <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Monto {isMultiCurrencyTransfer ? 'Origen' : ''}</label>
-                <input type="number" step="0.01" placeholder="0.00" bind:value={amount} class="w-full text-2xl font-bold text-slate-800 focus:outline-none" required />
+                <input type="number" step="any" placeholder="0" bind:value={amount} on:input={calcTargetFromSource} class="w-full text-2xl font-bold text-slate-800 focus:outline-none" required />
             </div>
             <div class="w-24 border-l pl-2">
                 <label class="block text-[9px] font-bold text-slate-400 uppercase mb-1">Divisa</label>
-                <select bind:value={selectedCurrency} class="w-full text-xs font-bold text-indigo-600 bg-slate-50 p-1 rounded focus:outline-none">
+                <select bind:value={selectedCurrency} on:change={calcTargetFromSource} class="w-full text-xs font-bold text-indigo-600 bg-slate-50 p-1 rounded focus:outline-none">
                     <option value="ARS">ARS</option>
                     <option value="USD">USD</option>
                     <option value="USDT">USDT</option>
@@ -231,9 +236,9 @@
 
         {#if isMultiCurrencyTransfer}
             <div class="bg-indigo-50/50 p-3.5 rounded-2xl border border-indigo-100 shadow-sm animate-fade-in">
-                <label class="block text-[10px] font-bold text-indigo-600 uppercase mb-1">Monto de Ingreso Auto-Calculado</label>
+                <label class="block text-[10px] font-bold text-indigo-600 uppercase mb-1">Monto de Ingreso (Destino)</label>
                 <div class="flex items-center justify-between">
-                    <input type="number" step="0.01" bind:value={targetAmount} class="w-full text-xl font-bold text-slate-800 bg-transparent focus:outline-none" required />
+                    <input type="number" step="any" placeholder="0" bind:value={targetAmount} on:input={calcSourceFromTarget} class="w-full text-xl font-bold text-slate-800 bg-transparent focus:outline-none" required />
                     <span class="text-xs font-extrabold text-indigo-600 bg-white px-2 py-1 rounded border shadow-sm">
                         {accounts.find(a => a.id == destinationAccountId)?.currency}
                     </span>
@@ -263,7 +268,7 @@
             <div class="bg-red-50/50 p-3.5 rounded-2xl border border-red-100 shadow-sm">
                 <label class="block text-[10px] font-bold text-red-500 uppercase mb-1">Tasas / Impuestos Bancarios (Opcional)</label>
                 <div class="flex gap-2">
-                    <input type="number" step="0.01" placeholder="0.00" bind:value={feeAmount} class="w-24 p-2 bg-white rounded-lg text-sm font-bold border border-red-100 focus:outline-none" />
+                    <input type="number" step="any" placeholder="0" bind:value={feeAmount} class="w-24 p-2 bg-white rounded-lg text-sm font-bold border border-red-100 focus:outline-none" />
                     <select bind:value={feeCategoryId} class="flex-1 text-xs text-slate-700 bg-white border border-red-100 rounded-lg px-2 focus:outline-none">
                         <option value={null}>Sin categorizar...</option>
                         {#each categories as cat}<option value={cat.id}>{cat.name}</option>{/each}
@@ -274,7 +279,7 @@
         {:else}
             <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
                 <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">
-                    {type === 'deuda' ? 'Acreedor (Entidad)' : type === 'pago_deuda' ? 'Cuenta de Pago (Origen)' : type === 'ingreso' ? 'Cuenta Receptora' : 'Cuenta de Pago'}
+                    {type === 'deuda' ? 'Acreedor (Entidad)' : type === 'pago_deuda' ? 'Cuenta Origen (Para pagar)' : type === 'ingreso' ? 'Cuenta Receptora' : 'Cuenta de Pago'}
                 </label>
                 <select bind:value={primaryAccountId} class="w-full text-sm font-medium text-slate-700 bg-white focus:outline-none" required>
                     <option value={null}>Seleccionar...</option>
@@ -286,22 +291,24 @@
                 </select>
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
-                <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Categoría</label>
-                    <select bind:value={selectedCategoryId} class="w-full text-xs text-slate-700 bg-white focus:outline-none" disabled={type === 'pago_deuda'}>
-                        <option value={null}>Ninguna</option>
-                        {#each categories as cat}<option value={cat.id}>{cat.name}</option>{/each}
-                    </select>
+            {#if type !== 'transferencia'}
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Categoría</label>
+                        <select bind:value={selectedCategoryId} class="w-full text-xs text-slate-700 bg-white focus:outline-none" disabled={type === 'pago_deuda'}>
+                            <option value={null}>Ninguna</option>
+                            {#each categories as cat}<option value={cat.id}>{cat.name}</option>{/each}
+                        </select>
+                    </div>
+                    <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
+                        <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Entidad</label>
+                        <select bind:value={selectedPersonId} class="w-full text-xs text-slate-700 bg-white focus:outline-none" required={type === 'pago_deuda'}>
+                            <option value={null}>Ninguna</option>
+                            {#each entities as ent}<option value={ent.id}>{ent.name}</option>{/each}
+                        </select>
+                    </div>
                 </div>
-                <div class="bg-white p-3.5 rounded-2xl border border-slate-100 shadow-sm">
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase mb-1">Entidad</label>
-                    <select bind:value={selectedPersonId} class="w-full text-xs text-slate-700 bg-white focus:outline-none" required={type === 'pago_deuda'}>
-                        <option value={null}>Ninguna</option>
-                        {#each entities as ent}<option value={ent.id}>{ent.name}</option>{/each}
-                    </select>
-                </div>
-            </div>
+            {/if}
         {/if}
 
         <button type="submit" disabled={loading} class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg mt-2 text-sm transition-all">
