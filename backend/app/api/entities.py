@@ -4,7 +4,7 @@ from sqlalchemy import func
 from typing import List
 from decimal import Decimal
 from app.core.database import get_db
-from app.models.DataModels import Account, Category, Person, Entry
+from app.models.DataModels import Account, Category, Person, Entry, Subscription
 from app.schemas.finance import (
     AccountCreate, AccountResponse, AccountUpdate,
     CategoryCreate, CategoryResponse, CategoryUpdate,
@@ -16,6 +16,10 @@ router = APIRouter(tags=["Configuración Base"])
 # --- CUENTAS ---
 @router.post("/accounts", response_model=AccountResponse, status_code=201)
 def create_account(account_in: AccountCreate, db: Session = Depends(get_db)):
+    # Si esta cuenta nace como principal, destildamos a las demás
+    if account_in.is_main:
+        db.query(Account).update({Account.is_main: False})
+
     db_account = Account(**account_in.model_dump())
     db.add(db_account)
     db.commit()
@@ -31,9 +35,16 @@ def update_account(account_id: int, account_in: AccountUpdate, db: Session = Dep
     db_account = db.query(Account).filter(Account.id == account_id).first()
     if not db_account:
         raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+    
     update_data = account_in.model_dump(exclude_unset=True)
+    
+    # Si esta cuenta se vuelve la principal, destildamos a las demás
+    if update_data.get("is_main") == True:
+        db.query(Account).update({Account.is_main: False})
+        
     for key, value in update_data.items():
         setattr(db_account, key, value)
+        
     db.commit()
     db.refresh(db_account)
     return db_account
@@ -43,6 +54,27 @@ def delete_account(account_id: int, db: Session = Depends(get_db)):
     db_account = db.query(Account).filter(Account.id == account_id).first()
     if not db_account:
         raise HTTPException(status_code=404, detail="Cuenta no encontrada")
+
+    used_by_subscription = db.query(Subscription).filter(
+        Subscription.suggested_account_id == account_id,
+        Subscription.is_active == True,
+    ).first()
+    if used_by_subscription:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede desactivar: la suscripción '{used_by_subscription.description}' la usa como cuenta de cobro.",
+        )
+
+    used_as_reserve = db.query(Account).filter(
+        Account.reserve_account_id == account_id,
+        Account.is_active == True,
+    ).first()
+    if used_as_reserve:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede desactivar: la cuenta '{used_as_reserve.name}' la usa como cuenta de reserva.",
+        )
+
     db_account.is_active = False
     db.commit()
     return None
@@ -77,6 +109,17 @@ def delete_category(category_id: int, db: Session = Depends(get_db)):
     db_category = db.query(Category).filter(Category.id == category_id).first()
     if not db_category:
         raise HTTPException(status_code=404, detail="Categoría no encontrada")
+
+    used_by_subscription = db.query(Subscription).filter(
+        Subscription.category_id == category_id,
+        Subscription.is_active == True,
+    ).first()
+    if used_by_subscription:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede desactivar: la suscripción '{used_by_subscription.description}' la usa como categoría.",
+        )
+
     db_category.is_active = False
     db.commit()
     return None

@@ -1,169 +1,186 @@
 <script lang="ts">
-    import { page } from '$app/stores';
-    import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { onMount } from 'svelte';
+	import {
+		getTransaction,
+		getAccounts,
+		getCategories,
+		getPeople,
+		updateTransaction,
+		deleteTransaction,
+		ApiError
+	} from '$lib/api';
+	import type { Account, Category, Entry, Person, Transaction } from '$lib/types';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Card from '$lib/components/Card.svelte';
+	import Input from '$lib/components/Input.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
-    const txId = parseInt($page.params.id);
-    let tx: any = null;
-    let accounts: any[] = [];
-    let categories: any[] = [];
-    let entities: any[] = [];
-    
-    let isEditing = false;
-    let editDescription = '';
-    let editEntries: any[] = [];
-    let loading = false;
+	const txId = parseInt($page.params.id as string);
 
-    async function loadDetail() {
-        try {
-            const [resTx, resAcc, resCat, resEnt] = await Promise.all([
-                fetch(`http://127.0.0.1:8000/transactions/${txId}`),
-                fetch('http://127.0.0.1:8000/accounts'),
-                fetch('http://127.0.0.1:8000/categories'),
-                fetch('http://127.0.0.1:8000/people')
-            ]);
-            
-            if (resTx.ok) {
-                tx = await resTx.json();
-                editDescription = tx.description;
-                // Preparamos montos absolutos para el formulario de edición
-                editEntries = tx.entries.map((e: any) => ({ ...e, amount: Math.abs(parseFloat(e.amount)) }));
-            }
-            if (resAcc.ok) accounts = await resAcc.json();
-            if (resCat.ok) categories = await resCat.json();
-            if (resEnt.ok) entities = await resEnt.json();
-        } catch (err) {
-            console.error("Error cargando transacción:", err);
-        }
-    }
+	let tx: Transaction | null = null;
+	let accounts: Account[] = [];
+	let categories: Category[] = [];
+	let people: Person[] = [];
+	let loading = true;
+	let errorMessage = '';
 
-    onMount(loadDetail);
+	let isEditing = false;
+	let editDescription = '';
+	let editEntries: Entry[] = [];
+	let saving = false;
+	let confirmDeleteOpen = false;
 
-    function resolveEntityName(entry: any) {
-        let labels = [];
-        if (entry.account_id) labels.push(`💳 ${accounts.find(a => a.id === entry.account_id)?.name || 'Cuenta'}`);
-        if (entry.category_id) labels.push(`🏷️ ${categories.find(c => c.id === entry.category_id)?.name || 'Cat'}`);
-        if (entry.person_id) labels.push(`🏢 ${entities.find(e => e.id === entry.person_id)?.name || 'Entidad'}`);
-        return labels.length > 0 ? labels.join(' | ') : 'Concepto General';
-    }
+	async function loadDetail() {
+		loading = true;
+		try {
+			const [txData, accs, cats, ppl] = await Promise.all([
+				getTransaction(txId),
+				getAccounts(),
+				getCategories(),
+				getPeople()
+			]);
+			tx = txData;
+			accounts = accs;
+			categories = cats;
+			people = ppl;
+			editDescription = tx.description;
+			editEntries = tx.entries.map((e) => ({ ...e, amount: Number(e.amount) }));
+		} catch (err) {
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudo cargar la transacción.';
+		} finally {
+			loading = false;
+		}
+	}
+	onMount(loadDetail);
 
-    async function saveChanges() {
-        loading = true;
-        try {
-            const updatedEntries = editEntries.map((e, index) => {
-                const val = parseFloat(e.amount);
-                // Si la pata actualiza moneda origen/destino se debería recalcular base_amount.
-                // Como simplificación de edición rápida, mantenemos ratio 1:1 local, o respetamos el signo.
-                const signedVal = index === 0 ? -val : val;
-                return {
-                    account_id: e.account_id,
-                    category_id: e.category_id,
-                    person_id: e.person_id,
-                    amount: signedVal,
-                    base_amount: signedVal // En edición avanzada respetamos la equivalencia base original
-                };
-            });
+	function resolveEntityName(entry: Entry) {
+		const labels: string[] = [];
+		if (entry.account_id) labels.push(`💳 ${accounts.find((a) => a.id === entry.account_id)?.name ?? 'Cuenta'}`);
+		if (entry.category_id) labels.push(`🏷️ ${categories.find((c) => c.id === entry.category_id)?.name ?? 'Categoría'}`);
+		if (entry.person_id) labels.push(`🏢 ${people.find((p) => p.id === entry.person_id)?.name ?? 'Entidad'}`);
+		return labels.length > 0 ? labels.join(' | ') : 'Concepto General';
+	}
 
-            await fetch(`http://127.0.0.1:8000/transactions/${txId}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    description: editDescription,
-                    entries: updatedEntries
-                })
-            });
-            isEditing = false;
-            await loadDetail();
-        } finally {
-            loading = false;
-        }
-    }
+	async function saveChanges() {
+		saving = true;
+		errorMessage = '';
+		try {
+			const updatedEntries = editEntries.map((e) => ({
+				account_id: e.account_id,
+				category_id: e.category_id,
+				person_id: e.person_id,
+				amount: Number(e.amount),
+				base_amount: Number(e.amount)
+			}));
+			await updateTransaction(txId, { description: editDescription, entries: updatedEntries });
+			isEditing = false;
+			await loadDetail();
+		} catch (err) {
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudieron guardar los cambios.';
+		} finally {
+			saving = false;
+		}
+	}
 
-    async function deleteTx() {
-        if (!confirm("¿Eliminar transacción de forma definitiva?")) return;
-        await fetch(`http://127.0.0.1:8000/transactions/${txId}`, { method: 'DELETE' });
-        history.back();
-    }
+	async function confirmDelete() {
+		confirmDeleteOpen = false;
+		errorMessage = '';
+		try {
+			await deleteTransaction(txId);
+			history.back();
+		} catch (err) {
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudo eliminar la transacción.';
+		}
+	}
 </script>
 
-<main class="p-4 max-w-md mx-auto space-y-4">
-    <header class="flex justify-between items-center">
-        <h1 class="text-xl font-bold text-slate-800">Detalle de Transacción</h1>
-        <button type="button" on:click={() => history.back()} class="text-xs font-bold text-indigo-600 px-3 py-1.5 bg-indigo-50 rounded-xl">
-            ← Volver
-        </button>
-    </header>
+<main class="p-4 max-w-md mx-auto pt-6 pb-28 space-y-4">
+	<PageHeader title="Detalle de Operación" />
 
-    {#if tx}
-        <div class="bg-white p-5 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <div class="flex justify-between items-center">
-                <span class="text-[10px] font-bold text-slate-400 uppercase">Información Global</span>
-                <button type="button" on:click={() => isEditing = !isEditing} class="text-xs font-semibold text-indigo-600">
-                    {isEditing ? 'Cancelar' : '✏️ Editar'}
-                </button>
-            </div>
+	{#if errorMessage}
+		<div class="p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-card text-xs font-bold text-center">
+			{errorMessage}
+		</div>
+	{/if}
 
-            {#if isEditing}
-                <div class="space-y-1">
-                    <label class="block text-[10px] font-bold text-slate-400 uppercase">Descripción</label>
-                    <input type="text" bind:value={editDescription} class="w-full p-2 border border-slate-200 rounded-lg text-sm font-bold" />
-                </div>
-            {:else}
-                <div>
-                    <h2 class="text-lg font-bold text-slate-800">{tx.description}</h2>
-                    <span class="text-[10px] text-slate-400 block">{new Date(tx.date).toLocaleString()}</span>
-                </div>
-            {/if}
+	{#if tx}
+		<Card padding="p-5">
+			<div class="flex justify-between items-center">
+				<span class="text-[10px] font-bold text-zinc-500 uppercase">Información</span>
+				<button type="button" on:click={() => (isEditing = !isEditing)} class="text-xs font-semibold text-blue-400">
+					{isEditing ? 'Cancelar' : 'Editar'}
+				</button>
+			</div>
 
-            <div class="border-t border-slate-100 pt-3 space-y-3">
-                <span class="text-[10px] font-bold text-slate-400 uppercase block">Asientos Contables (Líneas)</span>
-                
-                {#each editEntries as entry, i}
-                    {#if isEditing}
-                        <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
-                            <div class="flex justify-between items-center border-b border-slate-200 pb-2">
-                                <span class="text-[10px] font-bold text-slate-500 uppercase">Impacto Monetario</span>
-                                <input type="number" step="0.01" bind:value={entry.amount} class="w-24 p-1 text-right border border-slate-200 rounded font-bold text-xs" />
-                            </div>
-                            
-                            <div class="space-y-1.5">
-                                <select bind:value={entry.account_id} class="w-full text-xs text-slate-700 bg-white border border-slate-200 p-1 rounded focus:outline-none">
-                                    <option value={null}>Sin Cuenta Bancaria</option>
-                                    {#each accounts as acc}<option value={acc.id}>💳 {acc.entity} - {acc.name}</option>{/each}
-                                </select>
-                                
-                                <select bind:value={entry.category_id} class="w-full text-xs text-slate-700 bg-white border border-slate-200 p-1 rounded focus:outline-none">
-                                    <option value={null}>Sin Categoría</option>
-                                    {#each categories as cat}<option value={cat.id}>🏷️ {cat.name}</option>{/each}
-                                </select>
+			{#if isEditing}
+				<div class="mt-2">
+					<Input label="Descripción" bind:value={editDescription} />
+				</div>
+			{:else}
+				<h2 class="text-lg font-bold text-white mt-2">{tx.description}</h2>
+				<span class="text-[10px] text-zinc-500 block">{new Date(tx.date).toLocaleString()}</span>
+			{/if}
 
-                                <select bind:value={entry.person_id} class="w-full text-xs text-slate-700 bg-white border border-slate-200 p-1 rounded focus:outline-none">
-                                    <option value={null}>Sin Entidad Asociada</option>
-                                    {#each entities as ent}<option value={ent.id}>🏢 {ent.name}</option>{/each}
-                                </select>
-                            </div>
-                        </div>
-                    {:else}
-                        <div class="p-2.5 bg-slate-50 rounded-xl flex justify-between items-center text-xs">
-                            <span class="font-medium text-slate-700 pr-2">{resolveEntityName(entry)}</span>
-                            <span class="font-bold {i === 0 ? 'text-red-600' : 'text-emerald-600'}">
-                                ${Math.abs(parseFloat(entry.amount)).toLocaleString()}
-                            </span>
-                        </div>
-                    {/if}
-                {/each}
-            </div>
+			<div class="border-t border-zinc-800 pt-3 mt-3 space-y-2">
+				<span class="text-[10px] font-bold text-zinc-500 uppercase block">Asientos contables</span>
+				{#each editEntries as entry}
+					{#if isEditing}
+						<div class="p-3 bg-zinc-900 rounded-xl border border-zinc-800 space-y-2">
+							<div class="flex justify-between items-center border-b border-zinc-800 pb-2">
+								<span class="text-[10px] font-bold text-zinc-500 uppercase">Monto (con signo)</span>
+								<input
+									type="number"
+									step="0.01"
+									bind:value={entry.amount}
+									class="w-28 p-1 text-right bg-zinc-950 border border-zinc-800 rounded text-white font-bold text-xs"
+								/>
+							</div>
+							<div class="space-y-1.5">
+								<select bind:value={entry.account_id} class="w-full text-xs text-white bg-zinc-950 border border-zinc-800 p-1.5 rounded focus:outline-none">
+									<option value={null}>Sin Cuenta Bancaria</option>
+									{#each accounts as acc}<option value={acc.id}>💳 {acc.entity} - {acc.name}</option>{/each}
+								</select>
+								<select bind:value={entry.category_id} class="w-full text-xs text-white bg-zinc-950 border border-zinc-800 p-1.5 rounded focus:outline-none">
+									<option value={null}>Sin Categoría</option>
+									{#each categories as cat}<option value={cat.id}>🏷️ {cat.name}</option>{/each}
+								</select>
+								<select bind:value={entry.person_id} class="w-full text-xs text-white bg-zinc-950 border border-zinc-800 p-1.5 rounded focus:outline-none">
+									<option value={null}>Sin Entidad Asociada</option>
+									{#each people as p}<option value={p.id}>🏢 {p.name}</option>{/each}
+								</select>
+							</div>
+						</div>
+					{:else}
+						<div class="p-2.5 bg-zinc-900 rounded-xl flex justify-between items-center text-xs">
+							<span class="font-medium text-zinc-300 pr-2">{resolveEntityName(entry)}</span>
+							<span class="font-bold {Number(entry.amount) < 0 ? 'text-white' : 'text-emerald-400'}">
+								{Number(entry.amount) < 0 ? '-' : '+'}${Math.abs(Number(entry.amount)).toLocaleString()}
+							</span>
+						</div>
+					{/if}
+				{/each}
+			</div>
 
-            {#if isEditing}
-                <button type="button" on:click={saveChanges} disabled={loading} class="w-full py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs">
-                    Confirmar Todos los Cambios
-                </button>
-            {/if}
-        </div>
-        
-        <button type="button" on:click={deleteTx} class="w-full py-3 bg-red-50 text-red-600 font-bold rounded-xl text-xs hover:bg-red-100 transition-colors">
-            Deshacer / Borrar Transacción
-        </button>
-    {:else}
-        <p class="text-center text-xs text-slate-400 py-12">Cargando transacción...</p>
-    {/if}
+			{#if isEditing}
+				<div class="mt-4">
+					<Button on:click={saveChanges} disabled={saving}>Confirmar Cambios</Button>
+				</div>
+			{/if}
+		</Card>
+
+		<Button variant="danger" on:click={() => (confirmDeleteOpen = true)}>Deshacer / Borrar Transacción</Button>
+	{:else if !loading}
+		<p class="text-center text-xs text-zinc-500 py-12">No se encontró la transacción.</p>
+	{/if}
 </main>
+
+<ConfirmDialog
+	open={confirmDeleteOpen}
+	title="¿Eliminar esta operación?"
+	message="Esta acción borra la transacción y sus asientos de forma permanente."
+	confirmLabel="Eliminar"
+	on:confirm={confirmDelete}
+	on:cancel={() => (confirmDeleteOpen = false)}
+/>

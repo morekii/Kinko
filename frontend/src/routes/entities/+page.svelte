@@ -1,66 +1,120 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
-    let entities: any[] = []; 
-    let name = ''; 
-    let isDebtTracker = false; // Checkbox para control patrimonial
-    let loading = false;
+	import { onMount } from 'svelte';
+	import { Plus } from 'lucide-svelte';
+	import { getPeople, createPerson, ApiError } from '$lib/api';
+	import type { Person } from '$lib/types';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import Card from '$lib/components/Card.svelte';
+	import Input from '$lib/components/Input.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import Badge from '$lib/components/Badge.svelte';
+	import EmptyState from '$lib/components/EmptyState.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 
-    async function loadEnts() {
-        const res = await fetch('http://127.0.0.1:8000/people');
-        if (res.ok) entities = await res.json();
-    }
-    onMount(loadEnts);
+	let entities: Person[] = [];
+	let name = '';
+	let isDebtTracker = false;
+	let creating = false;
+	let loading = true;
+	let showAddForm = false;
+	let errorMessage = '';
 
-    async function addEnt() {
-        if (!name.trim()) return;
-        loading = true;
-        await fetch('http://127.0.0.1:8000/people', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: name.trim(), is_debt_tracker: isDebtTracker, is_active: true })
-        });
-        name = ''; isDebtTracker = false; loading = false; 
-        await loadEnts();
-    }
+	async function loadEntities() {
+		loading = true;
+		errorMessage = '';
+		try {
+			entities = await getPeople();
+		} catch (err) {
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudieron cargar las entidades.';
+		} finally {
+			loading = false;
+		}
+	}
+	onMount(loadEntities);
+
+	async function addEntity() {
+		if (!name.trim()) return;
+		creating = true;
+		errorMessage = '';
+		try {
+			await createPerson({ name: name.trim(), is_debt_tracker: isDebtTracker, is_active: true });
+			name = '';
+			isDebtTracker = false;
+			showAddForm = false;
+			await loadEntities();
+		} catch (err) {
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudo crear la entidad.';
+		} finally {
+			creating = false;
+		}
+	}
 </script>
 
-<main class="p-4 max-w-md mx-auto space-y-4">
-    <header class="flex justify-between items-center">
-        <h1 class="text-xl font-bold text-slate-800">Entidades & Deudas</h1>
-        <button type="button" on:click={() => history.back()} class="text-xs font-bold text-indigo-600 px-3 py-1.5 bg-indigo-50 rounded-xl">← Volver</button>
-    </header>
+<main class="p-4 max-w-md mx-auto pt-6 pb-28">
+	<PageHeader title="Entidades" />
 
-    <form on:submit|preventDefault={addEnt} class="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm space-y-2">
-        <div class="flex gap-2">
-            <input type="text" placeholder="Nombre (Ej. Empleador, Mati...)" bind:value={name} class="flex-1 p-2 bg-slate-50 border border-slate-100 rounded-lg text-xs focus:outline-none" required />
-            <button type="submit" disabled={loading} class="bg-indigo-600 text-white font-bold px-3 rounded-lg text-xs">Crear</button>
-        </div>
-        <label class="flex items-center gap-1.5 px-1 cursor-pointer text-[10px] text-slate-500 font-medium">
-            <input type="checkbox" bind:checked={isDebtTracker} class="rounded text-indigo-600" />
-            <span>Rastrear saldo en Activos / Pasivos (Cuenta Corriente real)</span>
-        </label>
-    </form>
+	{#if errorMessage}
+		<div class="p-3 mb-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-card text-xs font-bold text-center">
+			{errorMessage}
+		</div>
+	{/if}
 
-    <div class="space-y-2">
-        {#each entities as ent}
-            <a href="/entities/{ent.id}" class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm flex justify-between items-center block hover:border-indigo-100 transition-all">
-                <div>
-                    <div class="flex items-center gap-1.5">
-                        <span class="font-bold text-xs text-slate-800 block">🏢 {ent.name}</span>
-                        {#if ent.is_debt_tracker}
-                            <span class="bg-amber-100 text-amber-800 text-[8px] font-extrabold px-1.5 py-0.5 rounded">PATRIMONIAL</span>
-                        {/if}
-                    </div>
-                    <span class="text-[9px] text-slate-400 block mt-0.5">Ver historial contable</span>
-                </div>
-                <div class="text-right">
-                    <span class="font-extrabold text-xs block {ent.balance > 0 ? 'text-emerald-600' : ent.balance < 0 ? 'text-red-600' : 'text-slate-600'}">
-                        ${parseFloat(ent.balance).toLocaleString()}
-                    </span>
-                    <span class="text-[8px] text-slate-400 block uppercase">
-                        {ent.balance > 0 ? 'A cobrar' : ent.balance < 0 ? 'A pagar' : 'Saldado'}
-                    </span>
-                </div>
-            </a>
-        {/each}
-    </div>
+	{#if !showAddForm}
+		<button
+			on:click={() => (showAddForm = true)}
+			class="w-full bg-surface border border-dashed border-zinc-700 rounded-card p-6 mb-6 flex flex-col items-center justify-center text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
+		>
+			<Plus size={28} class="mb-2 text-blue-500" />
+			<span class="text-sm font-bold tracking-wide">Registrar Entidad</span>
+		</button>
+	{:else}
+		<form on:submit|preventDefault={addEntity} class="bg-surface border border-blue-500/30 p-5 rounded-card shadow-lg shadow-blue-900/10 mb-6 space-y-4">
+			<div class="flex justify-between items-center mb-2">
+				<span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Nueva Entidad / Contacto</span>
+				<button type="button" on:click={() => (showAddForm = false)} class="text-xs font-bold text-zinc-500 hover:text-white">Cancelar</button>
+			</div>
+
+			<Input label="Nombre de la Entidad" placeholder="Ej. Empleador, Pedro, McDonald's..." bind:value={name} required />
+
+			<label class="flex items-center gap-2 pt-2 text-xs text-zinc-400 font-medium cursor-pointer border-t border-zinc-800 mt-2">
+				<input type="checkbox" bind:checked={isDebtTracker} class="rounded bg-zinc-900 border-zinc-700 text-blue-500" />
+				<span>Rastrear Saldo en Activos/Pasivos</span>
+			</label>
+
+			<Button type="submit" disabled={creating}>Guardar</Button>
+		</form>
+	{/if}
+
+	<div class="space-y-3">
+		<span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block mb-2">Directorio Activo</span>
+		{#if loading}
+			<Skeleton count={3} />
+		{:else}
+			{#each entities as ent}
+				<Card href="/entities/{ent.id}" padding="p-4">
+					<div class="flex justify-between items-center">
+						<div class="flex items-center gap-4">
+							<div class="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center border border-zinc-800">
+								<span class="text-xl">🏢</span>
+							</div>
+							<div>
+								<p class="font-bold text-sm text-white">{ent.name}</p>
+								{#if ent.is_debt_tracker}<Badge color="amber">Patrimonial</Badge>{/if}
+							</div>
+						</div>
+						<div class="text-right">
+							<p class="font-extrabold text-sm {ent.balance > 0 ? 'text-emerald-400' : ent.balance < 0 ? 'text-red-400' : 'text-zinc-500'}">
+								${Math.abs(Number(ent.balance)).toLocaleString()}
+							</p>
+							<span class="text-[9px] text-zinc-500 block uppercase font-medium mt-0.5 tracking-wider">
+								{ent.balance > 0 ? 'A cobrar' : ent.balance < 0 ? 'A pagar' : 'Saldado'}
+							</span>
+						</div>
+					</div>
+				</Card>
+			{:else}
+				<EmptyState title="Directorio vacío" subtitle="Cargá entidades para vincular tus gastos." />
+			{/each}
+		{/if}
+	</div>
 </main>

@@ -6,9 +6,16 @@ __pycache__/
 # Variables de entorno
 .env
 
-# Dependencias de Frontend
+# Base de datos local de desarrollo (SQLite)
+backend/kinko_dev.db
+backend/kinko_dev.db-wal
+backend/kinko_dev.db-shm
+
+# Dependencias y build de Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/.svelte-kit/
+frontend/build/
 
 # SO
 .DS_Store

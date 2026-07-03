@@ -22,6 +22,8 @@ class Account(Base):
     currency = Column(String(5), default="ARS", nullable=False)
     is_day_to_day = Column(Boolean, default=True, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    reserve_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+    is_main = Column(Boolean, default=False, nullable=False)
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -79,3 +81,15 @@ class UserSettings(Base):
     payday_day = Column(Integer, nullable=True)
     last_confirmed_payday = Column(DateTime, nullable=True) 
     default_income_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True)
+    title = Column(String, nullable=False)
+    message = Column(String, nullable=False)
+    action_type = Column(String, nullable=False)
+    amount = Column(Numeric(12, 2), nullable=True)
+    base_amount = Column(Numeric(12, 2), nullable=True)
+    credit_account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True)
+    is_resolved = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

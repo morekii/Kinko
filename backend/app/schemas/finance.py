@@ -8,11 +8,13 @@ from app.models.DataModels import AccountType
 
 class AccountCreate(BaseModel):
     name: str
-    entity: str 
+    entity: str
     type: AccountType
     currency: str = "ARS"
     is_day_to_day: bool = True
     is_active: bool = True
+    reserve_account_id: Optional[int] = None
+    is_main: bool = False
 
 class AccountUpdate(BaseModel):
     name: Optional[str] = None
@@ -21,12 +23,13 @@ class AccountUpdate(BaseModel):
     currency: Optional[str] = None
     is_day_to_day: Optional[bool] = None
     is_active: Optional[bool] = None
+    reserve_account_id: Optional[int] = None
+    is_main: Optional[bool] = None
 
 class AccountResponse(AccountCreate):
     id: int
     class Config:
         from_attributes = True
-
 # --- CATEGORÍAS ---
 
 class CategoryCreate(BaseModel):
@@ -124,7 +127,57 @@ class TransactionCreate(BaseModel):
         
         return entries
 
-# --- ANALÍTICAS Y BALANCES --- 
+# --- OPERACIONES DE ALTO NIVEL (INTENTS) ---
+# El backend arma los asientos de partida doble; el frontend sólo manda la intención.
+
+class ExpenseCreate(BaseModel):
+    description: Optional[str] = None
+    date: Optional[datetime] = None
+    amount: Decimal
+    currency: str = "ARS"
+    account_id: int
+    category_id: Optional[int] = None
+    person_id: Optional[int] = None
+    reserve_funds: bool = False
+    reserve_source_account_id: Optional[int] = None
+
+class IncomeCreate(BaseModel):
+    description: Optional[str] = None
+    date: Optional[datetime] = None
+    amount: Decimal
+    currency: str = "ARS"
+    account_id: int
+    category_id: Optional[int] = None
+    person_id: Optional[int] = None
+
+class TransferCreate(BaseModel):
+    description: Optional[str] = None
+    date: Optional[datetime] = None
+    amount: Decimal
+    currency: str = "ARS"
+    source_account_id: int
+    destination_account_id: int
+    fee_amount: Decimal = Decimal("0")
+    fee_category_id: Optional[int] = None
+    destination_amount: Optional[Decimal] = None  # override manual, raro
+
+class DebtCreate(BaseModel):
+    description: Optional[str] = None
+    date: Optional[datetime] = None
+    amount: Decimal
+    currency: str = "ARS"
+    person_id: int
+    category_id: Optional[int] = None
+
+class DebtPaymentCreate(BaseModel):
+    description: Optional[str] = None
+    date: Optional[datetime] = None
+    amount: Decimal
+    currency: str = "ARS"
+    account_id: int
+    person_id: int
+
+# --- ANALÍTICAS Y BALANCES ---
 
 class AccountBalance(BaseModel):
     account_id: int
