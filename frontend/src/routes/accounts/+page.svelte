@@ -112,6 +112,7 @@
 				<Select label="Moneda" bind:value={currency}>
 					<option value="ARS">ARS</option>
 					<option value="USD">USD</option>
+					<option value="USD_TARJETA">USD Tarjeta</option>
 					<option value="USDT">USDT</option>
 					<option value="BTC">BTC</option>
 				</Select>

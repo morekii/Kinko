@@ -289,6 +289,7 @@
 				<select id="op-currency" bind:value={selectedCurrency} class="w-full text-xs font-bold text-blue-500 bg-transparent focus:outline-none">
 					<option value="ARS" class="bg-zinc-950 text-white">ARS</option>
 					<option value="USD" class="bg-zinc-950 text-white">USD</option>
+					<option value="USD_TARJETA" class="bg-zinc-950 text-white">USD Tarjeta</option>
 					<option value="USDT" class="bg-zinc-950 text-white">USDT</option>
 					<option value="BTC" class="bg-zinc-950 text-white">BTC</option>
 				</select>
