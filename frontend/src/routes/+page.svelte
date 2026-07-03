@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { Eye, EyeOff, Landmark, Plus } from 'lucide-svelte';
-	import { getNetWorth, getBalances, getTransactions, getRates, ApiError } from '$lib/api';
-	import type { AccountBalance, Transaction, TotalBalance } from '$lib/types';
+	import { Eye, EyeOff, Landmark, PiggyBank, TrendingUp } from 'lucide-svelte';
+	import { getNetWorth, getBalances, getAccounts, getTransactions, getRates, ApiError } from '$lib/api';
+	import type { Account, AccountBalance, Transaction, TotalBalance } from '$lib/types';
 	import Card from '$lib/components/Card.svelte';
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
@@ -15,6 +15,7 @@
 		net_worth: 0
 	};
 	let accounts: AccountBalance[] = [];
+	let accountsFull: Account[] = [];
 	let transactions: Transaction[] = [];
 	let usdRate = 1;
 	let loading = true;
@@ -25,14 +26,16 @@
 		loading = true;
 		errorMessage = '';
 		try {
-			const [net, balances, tx, rates] = await Promise.all([
+			const [net, balances, accs, tx, rates] = await Promise.all([
 				getNetWorth(),
 				getBalances(),
+				getAccounts(),
 				getTransactions(100),
 				getRates()
 			]);
 			totalBalance = net;
 			accounts = balances;
+			accountsFull = accs;
 			transactions = tx;
 			const usd = rates.find((r) => r.currency === 'USD');
 			usdRate = usd ? Number(usd.rate_to_base) : 1;
@@ -47,10 +50,31 @@
 
 	const fmt = (val: number, show: boolean, prefix = '$') =>
 		show
-			? `${prefix}${val.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+			? `${val < 0 ? '-' : ''}${prefix}${Math.abs(val).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 			: '••••••';
 
 	$: netWorthUsd = usdRate ? totalBalance.net_worth / usdRate : 0;
+
+	$: mainAccount = accounts.find((a) => a.is_active && accountsFull.find((f) => f.id === a.account_id)?.is_main);
+
+	$: savingsUsd =
+		accounts
+			.filter((a) => {
+				if (!a.is_active || a.account_id === mainAccount?.account_id) return false;
+				const type = accountsFull.find((f) => f.id === a.account_id)?.type;
+				return type === 'savings' || type === 'investments';
+			})
+			.reduce((sum, a) => sum + Number(a.base_balance), 0) / (usdRate || 1);
+
+	function displayBalance(acc: AccountBalance) {
+		if (!showAmounts) return '••••••';
+		if (acc.currency === 'ARS') return fmt(Number(acc.balance), true, '');
+		const usdValue = usdRate ? Number(acc.base_balance) / usdRate : 0;
+		return `${usdValue < 0 ? '-' : ''}U$S ${Math.abs(usdValue).toLocaleString('en-US', {
+			minimumFractionDigits: 2,
+			maximumFractionDigits: 2
+		})}`;
+	}
 
 	const now = new Date();
 	$: monthTx = transactions.filter((tx) => {
@@ -98,59 +122,64 @@
 		<Skeleton height="h-40" />
 		<Skeleton height="h-48" />
 	{:else}
-		<div class="flex overflow-x-auto pb-4 -mx-4 px-4 gap-3 snap-x no-scrollbar">
-			<div
-				class="min-w-[150px] bg-surface border border-zinc-800 p-4 rounded-card snap-start shrink-0 flex flex-col justify-between shadow-lg"
-			>
-				<div class="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center mb-4">
+		<Card padding="p-5">
+			<div class="flex items-center gap-2 mb-1">
+				<div class="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center">
 					<Landmark size={18} class="text-emerald-400" />
 				</div>
+				<p class="text-[10px] text-zinc-500 uppercase tracking-widest font-bold">Liquidez</p>
+			</div>
+			<p class="text-3xl font-extrabold tracking-tight mt-2 {totalBalance.day_to_day_available < 0 ? 'text-red-400' : 'text-white'}">
+				{fmt(totalBalance.day_to_day_available, showAmounts)}
+			</p>
+		</Card>
+
+		<div class="grid grid-cols-3 gap-3 pt-4">
+			<div class="bg-surface border border-zinc-800 p-4 rounded-card flex flex-col justify-between shadow-lg">
+				<div class="w-8 h-8 bg-violet-500/20 rounded-lg flex items-center justify-center mb-4">
+					<TrendingUp size={18} class="text-violet-400" />
+				</div>
 				<div>
-					<p class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider">Efectivo día a día</p>
+					<p class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider truncate">Patrimonio (USD)</p>
 					<p class="text-lg font-bold text-white mt-0.5">
-						{fmt(totalBalance.day_to_day_available, showAmounts)}
+						{showAmounts
+							? `$ ${netWorthUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+							: '••••••'}
 					</p>
 				</div>
 			</div>
 
-			{#each accounts.filter((a) => a.is_active) as acc}
+			<div class="bg-surface border border-zinc-800 p-4 rounded-card flex flex-col justify-between shadow-lg">
+				<div class="w-8 h-8 bg-amber-500/20 rounded-lg flex items-center justify-center mb-4">
+					<PiggyBank size={18} class="text-amber-400" />
+				</div>
+				<div>
+					<p class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider truncate">Ahorros (USD)</p>
+					<p class="text-lg font-bold text-white mt-0.5">
+						{showAmounts
+							? `$ ${savingsUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+							: '••••••'}
+					</p>
+				</div>
+			</div>
+
+			{#if mainAccount}
 				<a
-					href="/accounts/{acc.account_id}"
-					class="min-w-[140px] bg-surface border border-zinc-800 p-4 rounded-card snap-start shrink-0 flex flex-col justify-between hover:bg-zinc-800 transition-colors shadow-lg"
+					href="/accounts/{mainAccount.account_id}"
+					class="bg-surface border border-zinc-800 p-4 rounded-card flex flex-col justify-between hover:bg-zinc-800 transition-colors shadow-lg"
 				>
 					<div class="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center mb-4">
-						<span class="text-blue-400 text-xs font-bold">{acc.currency}</span>
+						<span class="text-blue-400 text-xs font-bold">{mainAccount.currency}</span>
 					</div>
 					<div>
 						<p class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider truncate">
-							{acc.account_name}
+							{mainAccount.account_name}
 						</p>
-						<p class="text-lg font-bold text-white mt-0.5">{fmt(Number(acc.balance), showAmounts, '')}</p>
+						<p class="text-lg font-bold text-white mt-0.5">{displayBalance(mainAccount)}</p>
 					</div>
 				</a>
-			{/each}
-
-			<a
-				href="/accounts"
-				class="min-w-[130px] bg-zinc-900/50 border border-dashed border-zinc-700 p-4 rounded-card snap-start shrink-0 flex flex-col items-center justify-center hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-zinc-300"
-			>
-				<div class="w-10 h-10 bg-accent rounded-full flex items-center justify-center mb-2 text-white">
-					<Plus size={20} strokeWidth={2.5} />
-				</div>
-				<span class="text-xs font-semibold">Agregar cuenta</span>
-			</a>
+			{/if}
 		</div>
-
-		<Card padding="p-5" >
-			<div class="mb-1">
-				<p class="text-[10px] text-zinc-500 uppercase tracking-widest mb-1">Patrimonio global (USD)</p>
-				<p class="text-3xl font-extrabold text-white tracking-tight">
-					{showAmounts
-						? `$ ${netWorthUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-						: '••••••'}
-				</p>
-			</div>
-		</Card>
 
 		<div class="flex gap-3 mt-4">
 			<StatTile label="Ingresos del mes" value={fmt(monthIncome, showAmounts)} tone="positive" />
@@ -194,13 +223,3 @@
 		</div>
 	{/if}
 </main>
-
-<style>
-	.no-scrollbar::-webkit-scrollbar {
-		display: none;
-	}
-	.no-scrollbar {
-		-ms-overflow-style: none;
-		scrollbar-width: none;
-	}
-</style>

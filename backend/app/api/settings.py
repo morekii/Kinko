@@ -1,12 +1,21 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.core.database import get_db
+from app.core.rates_service import RatesFetchError, refresh_rates
 from app.models.DataModels import ExchangeRate
 from app.schemas.finance import ExchangeRateUpdate, ExchangeRateResponse
 from decimal import Decimal
 
 router = APIRouter(prefix="/settings/rates", tags=["Cotizaciones"])
+
+@router.post("/refresh", response_model=List[ExchangeRateResponse])
+def refresh_exchange_rates(db: Session = Depends(get_db)):
+    """Actualiza Dólar Oficial, Tarjeta, Cripto (dolarapi.com) y BTC en ARS (Coinbase) automáticamente."""
+    try:
+        return refresh_rates(db)
+    except RatesFetchError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
 
 @router.patch("/", response_model=List[ExchangeRateResponse])
 def upsert_exchange_rates(rates_in: ExchangeRateUpdate, db: Session = Depends(get_db)):

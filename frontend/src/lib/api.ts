@@ -101,6 +101,7 @@ export const getNetWorth = () => get<TotalBalance>('/analytics/net-worth');
 export const getRates = () => get<ExchangeRate[]>('/settings/rates/');
 export const updateRates = (rates: Record<string, number>) =>
 	patch<ExchangeRate[]>('/settings/rates/', { rates });
+export const refreshRates = () => post<ExchangeRate[]>('/settings/rates/refresh', {});
 
 // --- Suscripciones ---
 export const getSubscriptions = () => get<Subscription[]>('/subscriptions/');

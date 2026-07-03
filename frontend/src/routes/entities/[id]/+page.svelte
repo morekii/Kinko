@@ -33,7 +33,7 @@
 			}
 			transactions = tx.filter((t) => t.entries.some((e) => e.person_id === entityId));
 		} catch (err) {
-			errorMessage = err instanceof ApiError ? err.message : 'No se pudo cargar la entidad.';
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudo cargar el contacto.';
 		}
 	}
 	onMount(loadEntityHub);
@@ -63,7 +63,7 @@
 			await deletePerson(entityId);
 			history.back();
 		} catch (err) {
-			errorMessage = err instanceof ApiError ? err.message : 'No se pudo eliminar la entidad.';
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudo eliminar el contacto.';
 		}
 	}
 </script>
@@ -110,7 +110,7 @@
 			{/if}
 
 			<div class="mt-4">
-				<Button variant="danger" on:click={() => (confirmDeleteOpen = true)}>Eliminar Entidad</Button>
+				<Button variant="danger" on:click={() => (confirmDeleteOpen = true)}>Eliminar Contacto</Button>
 			</div>
 		</Card>
 
@@ -130,7 +130,7 @@
 					</div>
 				</Card>
 			{:else}
-				<EmptyState title="Sin movimientos" subtitle="No hay operaciones vinculadas a esta entidad." />
+				<EmptyState title="Sin movimientos" subtitle="No hay operaciones vinculadas a este contacto." />
 			{/each}
 		</div>
 	{/if}
@@ -138,7 +138,7 @@
 
 <ConfirmDialog
 	open={confirmDeleteOpen}
-	title="¿Eliminar esta entidad?"
+	title="¿Eliminar este contacto?"
 	message="Se elimina de forma definitiva."
 	confirmLabel="Eliminar"
 	on:confirm={confirmDelete}

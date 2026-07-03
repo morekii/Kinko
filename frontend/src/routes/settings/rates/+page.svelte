@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Plus } from 'lucide-svelte';
-	import { getRates, updateRates, ApiError } from '$lib/api';
+	import { getRates, updateRates, refreshRates, ApiError } from '$lib/api';
+	import { RefreshCw } from 'lucide-svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -16,10 +17,23 @@
 	let rows: RateRow[] = [];
 	let loading = true;
 	let saving = false;
+	let refreshing = false;
 	let successMessage = '';
 	let errorMessage = '';
 
 	let newCurrency = '';
+
+	$: usdRate = Number(rows.find((r) => r.currency === 'USD')?.rate) || 0;
+
+	function btcUsdDisplay(row: RateRow) {
+		if (!usdRate) return row.rate;
+		return (Number(row.rate || 0) / usdRate).toFixed(2);
+	}
+
+	function onBtcUsdInput(row: RateRow, value: string) {
+		const usdValue = parseFloat(value || '0');
+		row.rate = usdRate ? String(usdValue * usdRate) : value;
+	}
 
 	async function loadRates() {
 		loading = true;
@@ -40,6 +54,22 @@
 		if (!currency || rows.some((r) => r.currency === currency)) return;
 		rows = [...rows, { currency, rate: '' }];
 		newCurrency = '';
+	}
+
+	async function refreshFromApis() {
+		refreshing = true;
+		errorMessage = '';
+		successMessage = '';
+		try {
+			await refreshRates();
+			successMessage = 'Oficial, Tarjeta, Cripto y BTC actualizados desde las APIs.';
+			await loadRates();
+			setTimeout(() => (successMessage = ''), 3000);
+		} catch (err) {
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudo conectar con las APIs externas.';
+		} finally {
+			refreshing = false;
+		}
 	}
 
 	async function saveRates() {
@@ -80,18 +110,42 @@
 	{#if loading}
 		<Skeleton count={3} height="h-14" />
 	{:else}
+		<Button variant="secondary" on:click={refreshFromApis} disabled={refreshing}>
+			<span class="flex items-center justify-center gap-2">
+				<RefreshCw size={14} class={refreshing ? 'animate-spin' : ''} />
+				{refreshing ? 'Actualizando...' : 'Actualizar Oficial / Tarjeta / Cripto / BTC'}
+			</span>
+		</Button>
+		<p class="text-[9px] text-zinc-500 mt-2 mb-4 text-center">
+			Trae Oficial, Tarjeta y Cripto de dolarapi.com, y BTC de Coinbase (se muestra y edita en USD
+			abajo, aunque por dentro se guarda convertido a ARS para poder usarlo en tus cuentas y
+			transferencias). También corre solo, todos los días a las 00:00.
+		</p>
+
 		<Card padding="p-4">
 			<div class="space-y-3">
 				{#each rows as row}
 					<div class="flex items-center gap-3">
 						<span class="w-24 shrink-0 text-xs font-bold text-blue-400 uppercase break-words">{row.currency}</span>
-						<input
-							type="number"
-							step="any"
-							placeholder="0.00"
-							bind:value={row.rate}
-							class="flex-1 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none"
-						/>
+						{#if row.currency === 'BTC'}
+							<input
+								type="number"
+								step="any"
+								placeholder="0.00"
+								value={btcUsdDisplay(row)}
+								on:input={(e) => onBtcUsdInput(row, e.currentTarget.value)}
+								class="flex-1 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none"
+							/>
+							<span class="text-[9px] font-bold text-zinc-500 shrink-0">USD</span>
+						{:else}
+							<input
+								type="number"
+								step="any"
+								placeholder="0.00"
+								bind:value={row.rate}
+								class="flex-1 p-2.5 bg-zinc-900 border border-zinc-800 rounded-xl text-sm text-white focus:outline-none"
+							/>
+						{/if}
 					</div>
 				{:else}
 					<EmptyState title="Sin cotizaciones cargadas" subtitle="Agregá una moneda para empezar." />

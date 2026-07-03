@@ -8,6 +8,19 @@ import calendar
 from app.core.database import SessionLocal
 from app.models.DataModels import Account, Notification, Subscription, Transaction, Entry
 from app.core.transactions_service import MissingRateError, resolve_rate
+from app.core.rates_service import RatesFetchError, refresh_rates
+
+
+def refresh_daily_rates():
+    """Se ejecuta cada madrugada para traer Oficial/Tarjeta/Cripto/BTC de las APIs externas."""
+    db: Session = SessionLocal()
+    try:
+        refresh_rates(db)
+        print(f"[{datetime.now(timezone.utc)}] Cotizaciones externas actualizadas.")
+    except RatesFetchError as e:
+        print(f"No se pudieron actualizar las cotizaciones externas: {e}")
+    finally:
+        db.close()
 
 def process_daily_subscriptions():
     """Se ejecuta cada medianoche para cobrar suscripciones automáticamente."""
@@ -104,6 +117,11 @@ scheduler = BackgroundScheduler()
 
 def start_scheduler():
     """Inicia el motor en segundo plano."""
+    # Cotizaciones primero, para que las suscripciones cobren con datos del día
+    scheduler.add_job(
+        refresh_daily_rates,
+        CronTrigger(hour=0, minute=0, timezone="America/Argentina/Buenos_Aires")
+    )
     # Programamos la tarea para que corra todos los días a las 00:01 AM (hora Argentina)
     scheduler.add_job(
         process_daily_subscriptions,

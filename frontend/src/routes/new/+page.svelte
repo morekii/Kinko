@@ -36,6 +36,8 @@
 	let selectedCategoryId: any = null;
 	let selectedPersonId: any = null;
 	let destinationAccountId: any = null;
+	let destinationAmountOverride: number | string = '';
+	let destinationAmountEdited = false;
 
 	let reserveMoney = false;
 	let reserveSourceId: any = null;
@@ -95,6 +97,11 @@
 		return ((Number(amount) * srcRate) / dstRate).toFixed(6);
 	})();
 
+	$: if (!isMultiCurrencyTransfer) {
+		destinationAmountEdited = false;
+		destinationAmountOverride = '';
+	}
+
 	function switchMode(newMode: OperationType) {
 		type = newMode;
 		destinationAccountId = null;
@@ -104,6 +111,8 @@
 		errorMessage = '';
 		successMessage = '';
 		reserveMoney = false;
+		destinationAmountEdited = false;
+		destinationAmountOverride = '';
 		if (type === 'deuda') selectedCurrency = 'ARS';
 	}
 
@@ -121,7 +130,7 @@
 			return;
 		}
 		if ((type === 'deuda' || type === 'pago_deuda') && !selectedPersonId) {
-			errorMessage = 'Seleccioná la entidad correspondiente.';
+			errorMessage = 'Seleccioná el contacto correspondiente.';
 			return;
 		}
 
@@ -160,7 +169,11 @@
 					source_account_id: Number(primaryAccountId),
 					destination_account_id: Number(destinationAccountId),
 					fee_amount: feeAmount ? parseFloat(feeAmount as string) : 0,
-					fee_category_id: feeCategoryId ? Number(feeCategoryId) : null
+					fee_category_id: feeCategoryId ? Number(feeCategoryId) : null,
+					destination_amount:
+						destinationAmountEdited && destinationAmountOverride !== ''
+							? parseFloat(destinationAmountOverride as string)
+							: null
 				});
 			} else if (type === 'deuda') {
 				await createDebt({
@@ -284,14 +297,28 @@
 
 		{#if isMultiCurrencyTransfer}
 			<div class="bg-blue-950/30 p-3.5 rounded-card border border-blue-900 shadow-sm animate-fade-in">
-				<span class="block text-[10px] font-bold text-blue-400 uppercase mb-1">Estimado a recibir (destino)</span>
-				<div class="flex items-center justify-between">
-					<span class="text-xl font-bold text-white">{destinationPreview ?? '—'}</span>
+				<span class="block text-[10px] font-bold text-blue-400 uppercase mb-1">Monto a recibir (destino)</span>
+				<div class="flex items-center justify-between gap-2">
+					<input
+						type="number"
+						step="any"
+						placeholder={destinationPreview ?? '0'}
+						value={destinationAmountEdited ? destinationAmountOverride : (destinationPreview ?? '')}
+						on:input={(e) => {
+							destinationAmountEdited = true;
+							destinationAmountOverride = e.currentTarget.value;
+						}}
+						class="text-xl font-bold text-white bg-transparent focus:outline-none w-full"
+					/>
 					<span class="text-xs font-extrabold text-blue-400 bg-zinc-900 px-2 py-1 rounded border border-zinc-800 shadow-sm">
 						{accounts.find((a) => a.id == destinationAccountId)?.currency}
 					</span>
 				</div>
-				<p class="text-[9px] text-blue-400/70 mt-1">El monto final lo calcula el servidor con la cotización cargada.</p>
+				<p class="text-[9px] text-blue-400/70 mt-1">
+					{destinationAmountEdited
+						? 'Vas a registrar exactamente este monto recibido.'
+						: 'Estimado con la cotización cargada en Configuración — editalo si comprás a un precio distinto.'}
+				</p>
 			</div>
 		{/if}
 
@@ -325,7 +352,7 @@
 		{:else}
 			<Select
 				label={type === 'deuda'
-					? 'Acreedor (Entidad)'
+					? 'Acreedor (Contacto)'
 					: type === 'pago_deuda'
 						? 'Cuenta Origen (Para pagar)'
 						: type === 'ingreso'
@@ -349,6 +376,11 @@
 						<Lock size={14} />
 						<span>Reservar plata para el resumen</span>
 					</label>
+					<p class="text-[9px] text-indigo-400/70 mt-1.5">
+						Esto transfiere la plata ahora mismo a la cuenta de reserva. Si preferís que siga
+						generando rendimiento hasta que llegue el resumen, dejalo destildado y pagá la
+						tarjeta con una Transferencia manual cuando llegue.
+					</p>
 					{#if reserveMoney}
 						<div class="mt-3 pt-3 border-t border-indigo-900">
 							<span class="text-[9px] font-bold text-indigo-400 uppercase block mb-1">Origen del dinero a reservar</span>
@@ -366,7 +398,7 @@
 					<option value={null} class="bg-zinc-950">Ninguna</option>
 					{#each categories as cat}<option value={cat.id} class="bg-zinc-950">🏷️ {cat.name}</option>{/each}
 				</Select>
-				<Select label="Entidad" bind:value={selectedPersonId} required={type === 'pago_deuda'}>
+				<Select label="Contacto" bind:value={selectedPersonId} required={type === 'pago_deuda'}>
 					<option value={null} class="bg-zinc-950">Ninguna</option>
 					{#each people as p}<option value={p.id} class="bg-zinc-950">🏢 {p.name}</option>{/each}
 				</Select>

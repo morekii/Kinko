@@ -59,7 +59,7 @@
 		const labels: string[] = [];
 		if (entry.account_id) labels.push(`💳 ${accounts.find((a) => a.id === entry.account_id)?.name ?? 'Cuenta'}`);
 		if (entry.category_id) labels.push(`🏷️ ${categories.find((c) => c.id === entry.category_id)?.name ?? 'Categoría'}`);
-		if (entry.person_id) labels.push(`🏢 ${people.find((p) => p.id === entry.person_id)?.name ?? 'Entidad'}`);
+		if (entry.person_id) labels.push(`🏢 ${people.find((p) => p.id === entry.person_id)?.name ?? 'Contacto'}`);
 		return labels.length > 0 ? labels.join(' | ') : 'Concepto General';
 	}
 
@@ -147,7 +147,7 @@
 									{#each categories as cat}<option value={cat.id}>🏷️ {cat.name}</option>{/each}
 								</select>
 								<select bind:value={entry.person_id} class="w-full text-xs text-white bg-zinc-950 border border-zinc-800 p-1.5 rounded focus:outline-none">
-									<option value={null}>Sin Entidad Asociada</option>
+									<option value={null}>Sin Contacto Asociado</option>
 									{#each people as p}<option value={p.id}>🏢 {p.name}</option>{/each}
 								</select>
 							</div>

@@ -26,7 +26,7 @@
 					<div class="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
 						<Users size={18} />
 					</div>
-					<span class="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors">Entidades & Deudas</span>
+					<span class="font-bold text-sm text-white group-hover:text-emerald-400 transition-colors">Contactos & Deudas</span>
 				</div>
 				<ChevronRight size={16} class="text-zinc-600" />
 			</a>

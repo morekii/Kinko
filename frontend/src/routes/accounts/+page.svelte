@@ -38,6 +38,8 @@
 	}
 	onMount(loadAccounts);
 
+	$: if (type === 'investments') isDayToDay = false;
+
 	function balanceFor(accountId: number) {
 		return balances.find((b) => b.account_id === accountId)?.balance ?? null;
 	}
@@ -105,11 +107,13 @@
 					<option value="checking">Cta. Corriente</option>
 					<option value="credit_card">Tarjeta Crédito</option>
 					<option value="cash">Efectivo</option>
+					<option value="investments">Inversión / Cripto</option>
 				</Select>
 				<Select label="Moneda" bind:value={currency}>
 					<option value="ARS">ARS</option>
 					<option value="USD">USD</option>
 					<option value="USDT">USDT</option>
+					<option value="BTC">BTC</option>
 				</Select>
 			</div>
 

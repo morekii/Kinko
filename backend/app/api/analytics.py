@@ -45,7 +45,7 @@ def get_net_worth(db: Session = Depends(get_db)):
     )
     people_balances = [r.balance or Decimal("0.00") for r in people_results]
 
-    day_to_day = sum((b.base_balance for b in balances if b.is_day_to_day and b.is_active and b.base_balance > 0), Decimal("0.00"))
+    day_to_day = sum((b.base_balance for b in balances if b.is_day_to_day and b.is_active), Decimal("0.00"))
     
     assets = sum((b.base_balance for b in balances if b.base_balance > 0 and b.is_active), Decimal("0.00")) + \
              sum((pb for pb in people_balances if pb > 0), Decimal("0.00"))

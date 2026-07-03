@@ -25,7 +25,7 @@
 		try {
 			entities = await getPeople();
 		} catch (err) {
-			errorMessage = err instanceof ApiError ? err.message : 'No se pudieron cargar las entidades.';
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudieron cargar los contactos.';
 		} finally {
 			loading = false;
 		}
@@ -43,7 +43,7 @@
 			showAddForm = false;
 			await loadEntities();
 		} catch (err) {
-			errorMessage = err instanceof ApiError ? err.message : 'No se pudo crear la entidad.';
+			errorMessage = err instanceof ApiError ? err.message : 'No se pudo crear el contacto.';
 		} finally {
 			creating = false;
 		}
@@ -51,7 +51,7 @@
 </script>
 
 <main class="p-4 max-w-md mx-auto pt-6 pb-28">
-	<PageHeader title="Entidades" />
+	<PageHeader title="Contactos" />
 
 	{#if errorMessage}
 		<div class="p-3 mb-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-card text-xs font-bold text-center">
@@ -65,16 +65,16 @@
 			class="w-full bg-surface border border-dashed border-zinc-700 rounded-card p-6 mb-6 flex flex-col items-center justify-center text-zinc-500 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer"
 		>
 			<Plus size={28} class="mb-2 text-blue-500" />
-			<span class="text-sm font-bold tracking-wide">Registrar Entidad</span>
+			<span class="text-sm font-bold tracking-wide">Registrar Contacto</span>
 		</button>
 	{:else}
 		<form on:submit|preventDefault={addEntity} class="bg-surface border border-blue-500/30 p-5 rounded-card shadow-lg shadow-blue-900/10 mb-6 space-y-4">
 			<div class="flex justify-between items-center mb-2">
-				<span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Nueva Entidad / Contacto</span>
+				<span class="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Nuevo Contacto</span>
 				<button type="button" on:click={() => (showAddForm = false)} class="text-xs font-bold text-zinc-500 hover:text-white">Cancelar</button>
 			</div>
 
-			<Input label="Nombre de la Entidad" placeholder="Ej. Empleador, Pedro, McDonald's..." bind:value={name} required />
+			<Input label="Nombre del Contacto" placeholder="Ej. Empleador, Pedro, McDonald's..." bind:value={name} required />
 
 			<label class="flex items-center gap-2 pt-2 text-xs text-zinc-400 font-medium cursor-pointer border-t border-zinc-800 mt-2">
 				<input type="checkbox" bind:checked={isDebtTracker} class="rounded bg-zinc-900 border-zinc-700 text-blue-500" />
@@ -113,7 +113,7 @@
 					</div>
 				</Card>
 			{:else}
-				<EmptyState title="Directorio vacío" subtitle="Cargá entidades para vincular tus gastos." />
+				<EmptyState title="Directorio vacío" subtitle="Cargá contactos para vincular tus gastos." />
 			{/each}
 		{/if}
 	</div>
