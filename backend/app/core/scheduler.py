@@ -11,8 +11,8 @@ from app.core.transactions_service import MissingRateError, resolve_rate
 from app.core.rates_service import RatesFetchError, refresh_rates
 
 
-def refresh_daily_rates():
-    """Se ejecuta cada madrugada para traer Oficial/Tarjeta/Cripto/BTC de las APIs externas."""
+def refresh_hourly_rates():
+    """Se ejecuta cada hora para traer Oficial/Tarjeta/Cripto/BTC de las APIs externas."""
     db: Session = SessionLocal()
     try:
         refresh_rates(db)
@@ -117,10 +117,10 @@ scheduler = BackgroundScheduler()
 
 def start_scheduler():
     """Inicia el motor en segundo plano."""
-    # Cotizaciones primero, para que las suscripciones cobren con datos del día
+    # Cotizaciones cada hora en punto, para que las suscripciones cobren con datos frescos
     scheduler.add_job(
-        refresh_daily_rates,
-        CronTrigger(hour=0, minute=0, timezone="America/Argentina/Buenos_Aires")
+        refresh_hourly_rates,
+        CronTrigger(minute=0, timezone="America/Argentina/Buenos_Aires")
     )
     # Programamos la tarea para que corra todos los días a las 00:01 AM (hora Argentina)
     scheduler.add_job(

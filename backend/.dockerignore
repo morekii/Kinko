@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+kinko_dev.db
+kinko_dev.db-wal
+kinko_dev.db-shm

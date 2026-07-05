@@ -1,3 +1,4 @@
+import time
 from decimal import Decimal
 
 import httpx
@@ -8,21 +9,42 @@ from app.models.DataModels import ExchangeRate
 DOLARAPI_BASE = "https://dolarapi.com/v1/dolares"
 COINBASE_BTC_USD = "https://api.coinbase.com/v2/prices/BTC-USD/spot"
 
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 1.5
+
 
 class RatesFetchError(Exception):
     pass
 
 
+def _with_retries(fn):
+    last_exc = None
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            return fn()
+        except httpx.HTTPError as exc:
+            last_exc = exc
+            if attempt < RETRY_ATTEMPTS - 1:
+                time.sleep(RETRY_BACKOFF_SECONDS * (2 ** attempt))
+    raise last_exc
+
+
 def _fetch_dolar_venta(tipo: str) -> Decimal:
-    resp = httpx.get(f"{DOLARAPI_BASE}/{tipo}", timeout=10)
-    resp.raise_for_status()
-    return Decimal(str(resp.json()["venta"]))
+    def call():
+        resp = httpx.get(f"{DOLARAPI_BASE}/{tipo}", timeout=10)
+        resp.raise_for_status()
+        return Decimal(str(resp.json()["venta"]))
+
+    return _with_retries(call)
 
 
 def _fetch_btc_usd() -> Decimal:
-    resp = httpx.get(COINBASE_BTC_USD, timeout=10)
-    resp.raise_for_status()
-    return Decimal(resp.json()["data"]["amount"])
+    def call():
+        resp = httpx.get(COINBASE_BTC_USD, timeout=10)
+        resp.raise_for_status()
+        return Decimal(resp.json()["data"]["amount"])
+
+    return _with_retries(call)
 
 
 def fetch_external_rates() -> dict[str, Decimal]:

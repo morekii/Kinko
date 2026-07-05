@@ -12,15 +12,16 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
-  # El servicio del backend lo descomentaremos cuando armemos el Dockerfile
-  # backend:
-  #   build: ./backend
-  #   container_name: kinko_backend
-  #   restart: always
-  #   ports:
-  #     - "8000:8000"
-  #   depends_on:
-  #     - db
+  backend:
+    build: ./backend
+    container_name: kinko_backend
+    restart: always
+    environment:
+      DATABASE_URL: postgresql+psycopg://kinko_user:kinko_super_secret_password@db:5432/kinko
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
 
 volumes:
   postgres_data:
